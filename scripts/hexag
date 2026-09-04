@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# hexag CLI — thin dispatcher for hexag/scripts/*.sh.
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+
+usage() {
+  echo "usage: hexag <command> [args]"
+  echo ""
+  echo "commands:"
+  echo "  new <module-path> <dest-dir> [db-name]   scaffold a new hexag project"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  new)
+    shift
+    exec "$SCRIPT_DIR/new.sh" "$@"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "hexag: unknown command '$cmd'" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
