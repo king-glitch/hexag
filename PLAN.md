@@ -67,6 +67,7 @@ personal/hexag/
     cmd/mongogen/             the model-field generator
   template/                   files copied into a new project
   scripts/new.sh              copy template, rewrite module path
+  scripts/update.sh           update AGENTS.md, CLAUDE.md, etc. from template
 ```
 
 Import paths read `github.com/king-glitch/hexag/framework/ports`.
