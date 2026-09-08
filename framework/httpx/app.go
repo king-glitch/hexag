@@ -15,12 +15,82 @@ import (
 	"github.com/king-glitch/hexag/framework/ports"
 )
 
+// CORSConfig holds CORS middleware configuration.
+type CORSConfig struct {
+	AllowOrigins     []string
+	AllowHeaders     []string
+	AllowMethods     []string
+	ExposeHeaders    []string
+	AllowCredentials bool
+	MaxAge           int
+}
+
+// Config holds configuration for the httpx HTTP application.
+type Config struct {
+	CORS CORSConfig
+}
+
+// Option configures an httpx application.
+type Option func(*Config)
+
+// WithConfig sets the entire httpx Config.
+func WithConfig(cfg Config) Option {
+	return func(c *Config) {
+		*c = cfg
+	}
+}
+
+// WithCORS sets the CORS configuration.
+func WithCORS(cors CORSConfig) Option {
+	return func(c *Config) {
+		c.CORS = cors
+	}
+}
+
+// WithAllowOrigins sets allowed CORS origins.
+func WithAllowOrigins(origins ...string) Option {
+	return func(c *Config) {
+		c.CORS.AllowOrigins = origins
+	}
+}
+
+// WithAllowHeaders sets allowed CORS request headers.
+func WithAllowHeaders(headers ...string) Option {
+	return func(c *Config) {
+		c.CORS.AllowHeaders = headers
+	}
+}
+
+// DefaultCORSConfig returns standard default CORS configuration.
+func DefaultCORSConfig() CORSConfig {
+	return CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+	}
+}
+
+// DefaultConfig returns the default httpx configuration.
+func DefaultConfig() Config {
+	return Config{
+		CORS: DefaultCORSConfig(),
+	}
+}
+
 // New builds a *fiber.App wired with CORS, request logging, the shared
 // struct validator and error handler. mount is called with the "/api/v1"
 // group so the project registers its own route handlers — route
 // registration is business surface, not infrastructure, so it never moves
 // into the framework.
-func New(logger *zerolog.Logger, mount func(api fiber.Router)) *fiber.App {
+func New(logger *zerolog.Logger, mount func(api fiber.Router), opts ...Option) *fiber.App {
+	cfg := DefaultConfig()
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	applyConfigDefaults(&cfg)
+
 	app := fiber.New(
 		fiber.Config{
 			JSONEncoder: func(v any) ([]byte, error) {
@@ -40,15 +110,30 @@ func New(logger *zerolog.Logger, mount func(api fiber.Router)) *fiber.App {
 		return c.Next()
 	})
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+		AllowOrigins:     cfg.CORS.AllowOrigins,
+		AllowHeaders:     cfg.CORS.AllowHeaders,
+		AllowMethods:     cfg.CORS.AllowMethods,
+		ExposeHeaders:    cfg.CORS.ExposeHeaders,
+		AllowCredentials: cfg.CORS.AllowCredentials,
+		MaxAge:           cfg.CORS.MaxAge,
 	}))
 	app.Use(middleware.NewLoggerMiddleware(logger))
 
 	mount(app.Group("/api/v1"))
 
 	return app
+}
+
+func applyConfigDefaults(cfg *Config) {
+	if len(cfg.CORS.AllowOrigins) == 0 {
+		cfg.CORS.AllowOrigins = []string{"*"}
+	}
+	if len(cfg.CORS.AllowHeaders) == 0 {
+		cfg.CORS.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
+	}
+	if len(cfg.CORS.AllowMethods) == 0 {
+		cfg.CORS.AllowMethods = []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"}
+	}
 }
 
 func errorHandler(c fiber.Ctx, err error) error {
