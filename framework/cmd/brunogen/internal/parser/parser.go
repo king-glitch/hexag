@@ -317,10 +317,10 @@ func funcBodyText(fset *token.FileSet, src []byte, fd *ast.FuncDecl) string {
 // simplest robust signal for how its request struct (if any) is populated.
 func detectBindKind(body string) string {
 	switch {
-	case strings.Contains(body, ".Body(&req)"):
-		return "body"
 	case strings.Contains(body, "BindQuery(c, &req)") || strings.Contains(body, "BindQuery(c, &req"):
 		return "query"
+	case strings.Contains(body, ".Body(&req)") || strings.Contains(body, "Bind(c, &req)"):
+		return "body"
 	case strings.Contains(body, "ParsePaginationParamsContext("):
 		return "pagination"
 	default:
