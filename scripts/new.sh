@@ -78,6 +78,7 @@ done. next:
   cd $DEST_DIR
   go build ./...          # verify it compiles
   # edit internal/ports/domain.go — rename/replace ExampleModel with your first entity
-  # edit internal/ports/{repository,service,errors}.go and the example/ packages to match
-  # go generate ./internal/ports/...   (re-run after any domain.go change)
+  # make generate         (re-run after any domain.go change)
+  # make mockery          (re-run after any internal/ports changes)
+  # make bruno            (re-run after route/handler changes)
 MSG

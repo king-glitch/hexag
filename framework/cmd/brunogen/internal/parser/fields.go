@@ -121,7 +121,9 @@ func resolveType(expr ast.Expr, local, external resolver, tagKey string, depth i
 
 	case *ast.IndexExpr, *ast.IndexListExpr:
 		if collection, ok := resolveCollection(expr, external); ok {
+			key := field.Key
 			*field = collection
+			field.Key = key
 			return
 		}
 		field.Kind = "object"

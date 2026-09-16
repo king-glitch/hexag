@@ -2,13 +2,14 @@
 
 ## Contract
 
-- Run `/caveman ultra` before work; keep it active.
+- Run `/ponytail ultra` before work; keep it active.
 - Be terse and implementation-focused.
 - Use installed skills/MCP before improvising.
 - Go 1.26+; module `{{MODULE_PATH}}`; strict hexagonal architecture across two Go modules.
 - Framework: `github.com/king-glitch/hexag`; use a temporary local `go.mod replace` until published.
 - Root `CLAUDE.md` imports this file; never remove/break that link.
 - Never commit. Stage completed task files; user controls commit scope/message.
+- Check `MEMORY.md` to resume where left off; update `MEMORY.md` after completing each step in `docs/plans/` so next agent can seamlessly continue.
 - If repository state or user instructions conflict with this file, stop and ask.
 
 ## Architecture
@@ -146,6 +147,7 @@ hexhttpx.New(
 ```
 
 - Never hand-roll CORS, request logging, struct validation, or global error handling.
+- Bruno requests (`docs/bruno`) and API contract reference (`docs/API.md`) are generated; never write or update them manually.
 
 ## Mongo/Transactions
 
@@ -164,7 +166,7 @@ hexhttpx.New(
 ## Mocks
 
 - `.mockery.yml` targets only `{{MODULE_PATH}}/internal/ports`.
-- Generate project mocks with `mockery`; use testify `.EXPECT()`.
+- Generate project mocks with `mockery` (or `make mockery`); use testify `.EXPECT()`.
 - Never hand-edit `internal/ports/mocks/mocks.go`.
 - Never regenerate framework interfaces locally.
 - Import framework mocks directly from `github.com/king-glitch/hexag/framework/ports/mocks`.
@@ -179,10 +181,18 @@ hexhttpx.New(
 package main
 ```
 
-- After model changes run `go generate ./internal/ports/...`.
+- After model changes run `go generate ./internal/ports/...` (or `make generate`).
 - Never hand-edit `internal/adapters/database/mongo/models/*.go`.
 - Never vendor/copy the generator.
 - A new model is incomplete until all model requirements above are implemented and generation runs.
+- Run `make bruno` to generate Bruno API collection (`docs/bruno`) and API contract reference (`docs/API.md`) after adding or updating routes/handlers.
+- Never manually write or edit Bruno collections (`docs/bruno/**/*.bru`) or `docs/API.md`; they must always be generated via `brunogen`.
+
+## Memory
+
+- `MEMORY.md` tracks hand-off state, environment, plans status, and hard-won domain/runtime facts for subsequent agents.
+- Check `MEMORY.md` at session start before picking up work.
+- Update `MEMORY.md` after completing each step in `docs/plans/` or finishing tasks so the next agent can seamlessly continue.
 
 ## Comments
 
@@ -205,9 +215,11 @@ ServiceContext -> DB -> adapters -> services -> hexhttpx.New
 - Format; generate after model changes; run relevant tests and full suite when practical.
 - Run `go mod tidy` after dependency changes.
 - Verify generated Mongo files were not hand-edited.
+- Verify Bruno collection and `docs/API.md` were generated via `make bruno` and not manually edited.
 - Verify no framework aliases/wrappers or locally regenerated framework mocks.
 - Verify every error hop wraps and every sentinel comparison uses `errors.Is`.
 - Verify multi-writes use `TransactionRunner` and callback `ctx`.
 - Verify handlers/repositories contain no business logic.
 - Verify kebab-case routes, singular collections, and token hashing before DB access.
+- Update `MEMORY.md` with step progress, decisions, and handoff notes for next agents.
 - Stage only completed task files; never commit.

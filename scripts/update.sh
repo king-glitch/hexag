@@ -5,7 +5,8 @@
 # Usage: update.sh [dest-dir] [flags]
 # Flags:
 #   --mockery    Also update .mockery.yml
-#   --all        Update AGENTS.md, CLAUDE.md, and .mockery.yml
+#   --makefile   Also update makefile
+#   --all        Update AGENTS.md, CLAUDE.md, .mockery.yml, and makefile
 #
 # If dest-dir is omitted, defaults to current directory.
 
@@ -17,22 +18,28 @@ TEMPLATE_DIR="$HEXAG_ROOT/template"
 
 DEST_DIR="."
 UPDATE_MOCKERY=false
+UPDATE_MAKEFILE=false
 
 for arg in "$@"; do
   case "$arg" in
     --mockery)
       UPDATE_MOCKERY=true
       ;;
+    --makefile)
+      UPDATE_MAKEFILE=true
+      ;;
     --all)
       UPDATE_MOCKERY=true
+      UPDATE_MAKEFILE=true
       ;;
     -h|--help)
-      echo "usage: hexag update [dest-dir] [--mockery] [--all]"
+      echo "usage: hexag update [dest-dir] [--mockery] [--makefile] [--all]"
       echo ""
       echo "updates AGENTS.md and ensures CLAUDE.md links to it in a project."
       echo "options:"
-      echo "  --mockery   also update .mockery.yml"
-      echo "  --all       update all framework config files (.mockery.yml)"
+      echo "  --mockery    also update .mockery.yml"
+      echo "  --makefile   also update makefile"
+      echo "  --all        update all framework config files (.mockery.yml, makefile)"
       exit 0
       ;;
     *)
@@ -92,4 +99,16 @@ if [ "$UPDATE_MOCKERY" = true ]; then
     -e "s|{{MODULE_PATH}}|$MODULE_PATH|g" \
     "$TEMPLATE_DIR/.mockery.yml" > "$DEST_DIR/.mockery.yml"
   echo "✓ updated $DEST_DIR/.mockery.yml"
+fi
+
+# 4. Optional: makefile
+if [ "$UPDATE_MAKEFILE" = true ]; then
+  cp "$TEMPLATE_DIR/makefile" "$DEST_DIR/makefile"
+  echo "✓ updated $DEST_DIR/makefile"
+fi
+
+# 5. Initialize MEMORY.md if it doesn't exist
+if [ ! -f "$DEST_DIR/MEMORY.md" ]; then
+  cp "$TEMPLATE_DIR/MEMORY.md" "$DEST_DIR/MEMORY.md"
+  echo "✓ created $DEST_DIR/MEMORY.md"
 fi

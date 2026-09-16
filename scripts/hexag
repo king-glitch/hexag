@@ -15,7 +15,8 @@ usage() {
   echo ""
   echo "commands:"
   echo "  new <module-path> <dest-dir> [db-name]   scaffold a new hexag project"
-  echo "  update [dest-dir] [--mockery] [--all]    update AGENTS.md, CLAUDE.md, etc."
+  echo "  update [dest-dir] [--mockery] [--makefile] [--all]  update AGENTS.md, CLAUDE.md, etc."
+  echo "  bruno [flags]                            generate Bruno API collection and docs/API.md"
 }
 
 cmd="${1:-}"
@@ -27,6 +28,10 @@ case "$cmd" in
   update)
     shift
     exec "$SCRIPT_DIR/update.sh" "$@"
+    ;;
+  bruno)
+    shift
+    exec "$SCRIPT_DIR/bruno.sh" "$@"
     ;;
   -h|--help|help|"")
     usage
