@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/king-glitch/hexag/framework/ports"
+	servicebase "github.com/king-glitch/hexag/framework/api/service/base"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -36,7 +37,7 @@ func WithRetryBackoff(base time.Duration, max time.Duration) Option {
 }
 
 type Service struct {
-	ports.ServiceBase
+	servicebase.ServiceBase
 
 	tag         string
 	repository  ports.QueueRepository
@@ -56,7 +57,7 @@ func NewService(
 	options ...Option,
 ) ports.QueueService {
 	s := Service{
-		ServiceBase:      ports.NewBaseService(ctx),
+		ServiceBase:      servicebase.NewBaseService(ctx),
 		tag:              tag,
 		repository:       repository,
 		transformer:      transformer,
@@ -398,7 +399,7 @@ func (q Service) GetQueueData(ctx context.Context, id bson.ObjectID) (ports.Queu
 		return nil, errors.Wrap(err, "failed to transform queue item")
 	}
 
-	return ports.NewWrappedItemWithStatus(transformed, item.Status, item.Message), nil
+	return NewWrappedItemWithStatus(transformed, item.Status, item.Message), nil
 }
 
 func (q Service) ListItems(
@@ -424,7 +425,7 @@ func (q Service) ListItems(
 
 		transformed = append(
 			transformed,
-			ports.NewWrappedItemWithStatus(item, m.Status, m.Message),
+			NewWrappedItemWithStatus(item, m.Status, m.Message),
 		)
 	}
 

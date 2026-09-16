@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
-	"github.com/king-glitch/hexag/framework/ports"
+	errors2 "github.com/king-glitch/hexag/framework/api/service/errors"
 	"github.com/pkg/errors"
 )
 
@@ -49,8 +49,8 @@ func (v Base) Validate(out any) error {
 		fieldType = fieldType.Elem()
 	}
 
-	serviceErr := ports.NewServiceError(
-		ports.ServiceErrorCodeValidation,
+	serviceErr := errors2.NewServiceError(
+		errors2.ServiceErrorCodeValidation,
 		errors.New("one or more fields failed validation"),
 	)
 
@@ -58,11 +58,11 @@ func (v Base) Validate(out any) error {
 		fieldName := fieldErr.Field()
 
 		if field, ok := fieldType.FieldByName(fieldErr.Field()); ok {
-			if tag := strings.Split(field.Tag.Get("json"), ",")[0]; tag != "" {
+			if tag, _, _ := strings.Cut(field.Tag.Get("json"), ","); tag != "" {
 				fieldName = tag
-			} else if tag := strings.Split(field.Tag.Get("form"), ",")[0]; tag != "" {
+			} else if tag, _, _ := strings.Cut(field.Tag.Get("form"), ","); tag != "" {
 				fieldName = tag
-			} else if tag := strings.Split(field.Tag.Get("query"), ",")[0]; tag != "" {
+			} else if tag, _, _ := strings.Cut(field.Tag.Get("query"), ","); tag != "" {
 				fieldName = tag
 			}
 		}

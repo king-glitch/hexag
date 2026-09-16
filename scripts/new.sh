@@ -62,10 +62,8 @@ cp "$DEST_DIR/.env.example" "$DEST_DIR/.env"
 
 (
   cd "$DEST_DIR"
-  # Generate before tidy: the generated internal/adapters/.../models package
-  # doesn't exist yet, and `go mod tidy` can't resolve local imports of a
-  # package that isn't there — but `go run <fully-qualified-path>` bootstraps
-  # its own deps via the replace directive regardless.
+  echo "go mod download"
+  go mod download
   echo "go generate ./internal/ports/..."
   (cd internal/ports && go generate ./...)
   echo "go mod tidy"

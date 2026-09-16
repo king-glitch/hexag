@@ -4,12 +4,12 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/pkg/errors"
 
-	"github.com/king-glitch/hexag/framework/ports"
+	serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
 )
 
 type Response struct {
-	Data   any                 `json:"data"`
-	Errors *ports.ServiceError `json:"errors,omitempty"`
+	Data   any                         `json:"data"`
+	Errors *serviceerrors.ServiceError `json:"errors,omitempty"`
 }
 
 func (r Response) ToJSON(c fiber.Ctx) error {

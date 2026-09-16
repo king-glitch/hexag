@@ -7,7 +7,7 @@ import (
 	"{{MODULE_PATH}}/internal/adapters/database/mongo/models"
 	"{{MODULE_PATH}}/internal/ports"
 
-	hexmongo "github.com/king-glitch/hexag/framework/mongo"
+	modelbase "github.com/king-glitch/hexag/framework/api/model/base"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -22,7 +22,7 @@ func NewRepository(db *mongo.Database) ports.ExampleRepository {
 }
 
 func (r Repository) Create(ctx context.Context, example ports.ExampleModel, at time.Time) (bson.ObjectID, error) {
-	model := hexmongo.GenerateBaseModel(example, at)
+	model := modelbase.GenerateBaseModel(example, at)
 
 	if _, err := r.collection.InsertOne(ctx, model); err != nil {
 		return bson.ObjectID{}, errors.Wrap(err, "failed to insert example")

@@ -1,4 +1,4 @@
-package ports
+package errors
 
 import (
 	"net/http"

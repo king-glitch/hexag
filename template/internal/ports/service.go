@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	hexports "github.com/king-glitch/hexag/framework/ports"
+	serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type ExampleService interface {
-	Get(ctx context.Context, id bson.ObjectID) (ExampleModel, *hexports.ServiceError)
-	Create(ctx context.Context, name string, at time.Time) (ExampleModel, *hexports.ServiceError)
+	Get(ctx context.Context, id bson.ObjectID) (ExampleModel, *serviceerrors.ServiceError)
+	Create(ctx context.Context, name string, at time.Time) (ExampleModel, *serviceerrors.ServiceError)
 }

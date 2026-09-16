@@ -3,6 +3,7 @@
 package ports
 
 import (
+	modelbase "github.com/king-glitch/hexag/framework/api/model/base"
 	hexports "github.com/king-glitch/hexag/framework/ports"
 )
 
@@ -10,7 +11,7 @@ import (
 // service, and route package) to your first real domain model, or delete it
 // once you've added your own.
 type ExampleModel struct {
-	hexports.ModelBase `bson:",inline" json:",inline"`
+	modelbase.ModelBase `bson:",inline" json:",inline"`
 
 	Name string `json:"name" bson:"name"`
 }
@@ -20,11 +21,11 @@ func (m ExampleModel) CollectionName() string {
 }
 
 func (m ExampleModel) WithBase(base hexports.ModelBase) ExampleModel {
-	m.ModelBase = base
+	m.ModelBase = m.ModelBase.WithBase(base)
 	return m
 }
 
 func (m ExampleModel) MarshalJSON() ([]byte, error) {
 	type alias ExampleModel
-	return hexports.MarshalOmitBase(m.ModelBase, alias(m))
+	return modelbase.MarshalOmitBase(m.ModelBase, alias(m))
 }

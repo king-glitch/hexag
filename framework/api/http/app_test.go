@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	hexhttpx "github.com/king-glitch/hexag/framework/httpx"
+	hexhttpx "github.com/king-glitch/hexag/framework/api/http"
 )
 
 func TestNew_DefaultConfig(t *testing.T) {

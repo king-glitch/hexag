@@ -12,7 +12,7 @@ type Runner struct {
 	client *mongo.Client
 }
 
-func NewRunner(client *mongo.Client) ports.TransactionRunner {
+func NewRunner(client *mongo.Client) ports.TransactionRunnerAdapter {
 	return Runner{client: client}
 }
 

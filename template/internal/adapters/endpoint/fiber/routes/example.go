@@ -1,12 +1,10 @@
 package routes
 
 import (
-	"time"
-
 	"{{MODULE_PATH}}/internal/ports"
 
 	"github.com/gofiber/fiber/v3"
-	hextransport "github.com/king-glitch/hexag/framework/httpx/transport"
+	hextransport "github.com/king-glitch/hexag/framework/api/http/transport"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -20,11 +18,15 @@ func NewExampleHandler(service ports.ExampleService) ExampleHandler {
 }
 
 func (h ExampleHandler) Register(router fiber.Router) {
-	router.Get("/:id", h.get)
-	router.Post("/", h.create)
+	router.Get("/:id", h.Get)
+	router.Post("/", h.Create)
 }
 
-func (h ExampleHandler) get(c fiber.Ctx) error {
+type GetExampleResponse struct {
+	ports.ExampleModel
+}
+
+func (h ExampleHandler) Get(c fiber.Ctx) error {
 	id, err := bson.ObjectIDFromHex(c.Params("id"))
 	if err != nil {
 		return errors.Wrap(err, "invalid example id")
@@ -35,23 +37,29 @@ func (h ExampleHandler) get(c fiber.Ctx) error {
 		return serr
 	}
 
-	return hextransport.NewSuccessResponse(example).ToJSON(c)
+	return hextransport.NewSuccessResponse(GetExampleResponse{ExampleModel: example}).ToJSON(c)
 }
 
-type createExampleRequest struct {
+type CreateExampleRequest struct {
 	Name string `json:"name" validate:"required"`
 }
 
-func (h ExampleHandler) create(c fiber.Ctx) error {
-	var req createExampleRequest
-	if err := c.Bind().Body(&req); err != nil {
+type CreateExampleResponse struct {
+	ports.ExampleModel
+}
+
+func (h ExampleHandler) Create(c fiber.Ctx) error {
+	at := hextransport.RequestTime(c)
+
+	var req CreateExampleRequest
+	if err := hextransport.Bind(c, &req); err != nil {
 		return errors.Wrap(err, "failed to bind request")
 	}
 
-	example, serr := h.service.Create(c.RequestCtx(), req.Name, time.Now())
+	example, serr := h.service.Create(c.RequestCtx(), req.Name, at)
 	if serr != nil {
 		return serr
 	}
 
-	return hextransport.NewSuccessResponse(example).ToJSON(c)
+	return hextransport.NewSuccessResponse(CreateExampleResponse{ExampleModel: example}).ToJSON(c)
 }

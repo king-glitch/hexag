@@ -9,10 +9,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
-	"github.com/king-glitch/hexag/framework/httpx/middleware"
-	"github.com/king-glitch/hexag/framework/httpx/transport"
-	"github.com/king-glitch/hexag/framework/httpx/validator"
-	"github.com/king-glitch/hexag/framework/ports"
+	"github.com/king-glitch/hexag/framework/api/http/middleware"
+	"github.com/king-glitch/hexag/framework/api/http/transport"
+	"github.com/king-glitch/hexag/framework/api/http/validator"
+	serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
+	"github.com/king-glitch/hexag/framework/api/shared/collection"
 )
 
 // CORSConfig holds CORS middleware configuration.
@@ -140,7 +141,7 @@ func errorHandler(c fiber.Ctx, err error) error {
 	statusCode := fiber.StatusInternalServerError
 
 	var fiberErr *fiber.Error
-	var serviceErr *ports.ServiceError
+	var serviceErr *serviceerrors.ServiceError
 
 	switch {
 	case errors.As(err, &serviceErr):
@@ -150,9 +151,9 @@ func errorHandler(c fiber.Ctx, err error) error {
 		}
 	case errors.As(err, &fiberErr):
 		statusCode = fiberErr.Code
-		serviceErr = ports.NewServiceError(ports.ServiceErrorCodeInternal, errors.New(fiberErr.Message))
+		serviceErr = serviceerrors.NewServiceError(serviceerrors.ServiceErrorCodeInternal, errors.New(fiberErr.Message))
 	default:
-		serviceErr = ports.NewServiceError(ports.ServiceErrorCodeInternal, err)
+		serviceErr = serviceerrors.NewServiceError(serviceerrors.ServiceErrorCodeInternal, err)
 	}
 
 	if err := c.Status(statusCode).JSON(
@@ -168,12 +169,12 @@ func errorHandler(c fiber.Ctx, err error) error {
 }
 
 // ParsePaginationParamsContext parses standard pagination parameters from fiber.Ctx.
-func ParsePaginationParamsContext(ctx fiber.Ctx, defaultAmount ...int) ports.PaginationParams {
+func ParsePaginationParamsContext(ctx fiber.Ctx, defaultAmount ...int) collection.PaginationParams {
 	return transport.ParsePaginationParamsContext(ctx, defaultAmount...)
 }
 
 // ParsePaginationParams is an alias for ParsePaginationParamsContext.
-func ParsePaginationParams(ctx fiber.Ctx, defaultAmount ...int) ports.PaginationParams {
+func ParsePaginationParams(ctx fiber.Ctx, defaultAmount ...int) collection.PaginationParams {
 	return transport.ParsePaginationParamsContext(ctx, defaultAmount...)
 }
 

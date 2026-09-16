@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/king-glitch/hexag/framework/httpx/transport"
-	"github.com/king-glitch/hexag/framework/ports"
+	"github.com/king-glitch/hexag/framework/api/http/transport"
+	serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
 )
 
 type CustomAction string
@@ -100,9 +100,9 @@ func TestBindQuery_InvalidObjectID(t *testing.T) {
 	_, _ = app.Test(req)
 	assert.Error(t, bindErr)
 
-	var serr *ports.ServiceError
+	var serr *serviceerrors.ServiceError
 	assert.True(t, errors.As(bindErr, &serr))
-	assert.Equal(t, ports.ServiceErrorCodeValidation, serr.Code)
+	assert.Equal(t, serviceerrors.ServiceErrorCodeValidation, serr.Code)
 }
 
 type DefaultsFilter struct {

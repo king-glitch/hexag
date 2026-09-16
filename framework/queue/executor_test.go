@@ -17,6 +17,15 @@ func (stubContext) Logger() *zerolog.Logger {
 	return &logger
 }
 
+func (stubContext) GetLogger() *zerolog.Logger {
+	logger := zerolog.Nop()
+	return &logger
+}
+
+func (stubContext) GetTransactionRunner() ports.TransactionRunnerAdapter {
+	return nil
+}
+
 // stubQueue embeds the interface so only the methods the executor touches
 // need implementing; anything else panics loudly if it is ever called.
 type stubQueue struct {
@@ -85,7 +94,7 @@ func TestExecutorProcess(t *testing.T) {
 
 			status, err := executor.process(
 				context.Background(),
-				ports.NewItem(action, map[string]string{"k": "v"}),
+				NewItem(action, map[string]string{"k": "v"}),
 			)
 
 			if test.wantErr {

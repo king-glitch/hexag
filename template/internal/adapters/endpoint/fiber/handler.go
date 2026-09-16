@@ -6,7 +6,7 @@ import (
 	"{{MODULE_PATH}}/internal/adapters/endpoint/fiber/routes"
 	"{{MODULE_PATH}}/internal/ports"
 
-	hexhttpx "github.com/king-glitch/hexag/framework/httpx"
+	hexhttpx "github.com/king-glitch/hexag/framework/api/http"
 )
 
 func New(

@@ -1,4 +1,4 @@
-package mongo
+package base
 
 import (
 	"time"
@@ -8,7 +8,7 @@ import (
 )
 
 func GenerateBaseModel[T ports.BaseSetter[T]](model T, at time.Time) T {
-	base := ports.ModelBase{
+	base := ModelBase{
 		ID:        bson.NewObjectID(),
 		CreatedAt: at,
 		UpdatedAt: at,

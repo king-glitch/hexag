@@ -1,78 +1,99 @@
 package ports
 
 import (
-	"encoding/json"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-type Model interface {
-	CollectionName() string
+type QueueModel struct {
+	Id          bson.ObjectID   `bson:"_id" json:"id"`
+	Data        any             `bson:"data" json:"data"`
+	Tag         string          `bson:"tag" json:"tag"`
+	ActionType  ActionType      `bson:"action_type" json:"action_type"`
+	Message     string          `bson:"message" json:"message"`
+	Status      QueueItemStatus `bson:"status" json:"status"`
+	Priority    Priority        `bson:"priority" json:"priority"`
+
+	ScheduledAt *time.Time `bson:"scheduled_at" json:"scheduled_at"`
+	Attempts    int        `bson:"attempts" json:"attempts"`
+	CreatedAt   time.Time  `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time  `bson:"updated_at" json:"updated_at"`
 }
 
-type BaseSetter[T any] interface {
-	WithBase(ModelBase) T
+func (m QueueModel) CollectionName() string {
+	return "queue"
 }
 
-type WithUserID struct {
-	UserID bson.ObjectID `json:"user_id" bson:"user_id"`
+func (m QueueModel) GetID() bson.ObjectID {
+	return m.Id
 }
 
-type ModelBase struct {
-	ID        bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	CreatedAt time.Time     `json:"created_at" bson:"created_at,omitempty"`
-	UpdatedAt time.Time     `json:"updated_at" bson:"updated_at,omitempty"`
-}
-
-func (m ModelBase) GetID() bson.ObjectID {
-	return m.ID
-}
-
-func (m ModelBase) GetCreatedAt() time.Time {
+func (m QueueModel) GetCreatedAt() time.Time {
 	return m.CreatedAt
 }
 
-func (m ModelBase) GetUpdatedAt() time.Time {
+func (m QueueModel) GetUpdatedAt() time.Time {
 	return m.UpdatedAt
 }
 
-func (m ModelBase) WithBase(base ModelBase) ModelBase {
-	m.ID = base.ID
-	m.CreatedAt = base.CreatedAt
-	m.UpdatedAt = base.UpdatedAt
-
+func (m QueueModel) WithBase(base ModelBase) QueueModel {
+	if base != nil {
+		m.Id = base.GetID()
+		m.CreatedAt = base.GetCreatedAt()
+		m.UpdatedAt = base.GetUpdatedAt()
+	}
 	return m
 }
 
-// MarshalOmitBase implements the shared MarshalJSON body every generated
-// model uses: it hides id/created_at/updated_at while any of them is still
-// zero (i.e. the model was never persisted), so a not-yet-created row never
-// serializes a fake zero ObjectID or zero timestamp to a client.
-func MarshalOmitBase(base ModelBase, v any) ([]byte, error) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
+type DequeueOptionData struct {
+	Limit *int
+	At    *time.Time
+}
 
-	if !base.ID.IsZero() && !base.CreatedAt.IsZero() && !base.UpdatedAt.IsZero() {
-		return data, nil
-	}
+type DequeueOption func(data *DequeueOptionData)
 
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return nil, err
+func DequeueOptionWithLimit(limit int) DequeueOption {
+	return func(data *DequeueOptionData) {
+		data.Limit = &limit
 	}
+}
 
-	if base.ID.IsZero() {
-		delete(fields, "id")
+func DequeueOptionWithAt(at time.Time) DequeueOption {
+	return func(data *DequeueOptionData) {
+		data.At = &at
 	}
-	if base.CreatedAt.IsZero() {
-		delete(fields, "created_at")
-	}
-	if base.UpdatedAt.IsZero() {
-		delete(fields, "updated_at")
-	}
+}
 
-	return json.Marshal(fields)
+type QueueItemStatusUpdate struct {
+	ID      bson.ObjectID
+	Status  QueueItemStatus
+	Message string
+}
+
+type ListQueueItemsFilter struct {
+	UserID     *bson.ObjectID
+	Tag        string
+	ActionType ActionType
+	Statuses   []QueueItemStatus
+	Limit      int
+}
+
+type QueueItem interface {
+	GetId() bson.ObjectID
+	GetData() any
+	SetData(data any)
+	GetActionType() ActionType
+	GetPriority() Priority
+	GetScheduledAt() *time.Time
+	GetStatus() QueueItemStatus
+	GetMessage() string
+}
+
+type Transformer interface {
+	Transform(QueueModel) (QueueItem, error)
+}
+
+type QueueExecutor interface {
+	Run(terminatedChan <-chan bool, stoppedChan chan<- bool) error
 }

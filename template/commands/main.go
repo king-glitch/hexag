@@ -17,6 +17,8 @@ import (
 	"{{MODULE_PATH}}/internal/adapters/endpoint/fiber/routes"
 	domaincontext "{{MODULE_PATH}}/internal/core/domain/context"
 	exampleservice "{{MODULE_PATH}}/internal/services/example"
+
+	hexmongo "github.com/king-glitch/hexag/framework/mongo"
 )
 
 func main() {
@@ -38,12 +40,13 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	serviceContext := domaincontext.New(config, logger)
-
 	client, err := mongo.Connect(options.Client().ApplyURI(config.MongoURI))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to connect to mongo")
 	}
+
+	txRunner := hexmongo.NewRunner(client)
+	serviceContext := domaincontext.New(config, logger, txRunner)
 
 	db := client.Database(config.MongoDatabase)
 

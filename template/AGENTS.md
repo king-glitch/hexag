@@ -35,19 +35,23 @@ Framework-owned:
 
 | Package                  | Owns                                                                                                                                                         |
 |--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `framework/ports`        | `ServiceError`, `Collection[T]`, `PaginationParams`, `ModelBase`, `BaseSetter[T]`, `WithUserID`, queue contracts, `TransactionRunner`, base `ServiceContext` |
+| `framework/ports`        | Pure interfaces: `ModelBase`, `BaseSetter[T]`, `ServiceContext` (provides `GetLogger()`, `GetTransactionRunner()`), `ServiceBase`, `TransactionRunnerAdapter`, queue contracts |
+| `framework/api/model/base` | `ModelBase`, `WithUserID`, `MarshalOmitBase`, `GenerateBaseModel`                                                                                         |
+| `framework/api/service/base` | `ServiceBase`, `NewBaseService`                                                                                                                           |
+| `framework/api/service/errors` | `ServiceError`, `NewServiceError`, `NewServiceErrorFromCause`, `RegisterSentinel`, `ServiceErrorCode*`                                                     |
+| `framework/api/shared/collection` | `PaginationParams`, `Collection[T]`                                                                                                                  |
+| `framework/api/shared/crypto` | Password/token hashing (`HashPassword`, `VerifyPassword`, `HashToken`)                                                                                      |
+| `framework/api/shared/env` | Generic `env:"..."` loading (`LoadEnv`, `LoadConfigFromEnv`)                                                                                                 |
+| `framework/api/http`     | Fiber, CORS, logging, validation, transport (`Bind`, `BindQuery`, `RequestTime`, `NewSuccessResponse`), global error handling                              |
 | `framework/mongo`        | `Field[T]`, `NewField`, `GenerateBaseModel`, Mongo transaction runner                                                                                        |
-| `framework/mongo/queue`  | Generic Mongo queue repository                                                                                                                               |
-| `framework/queue`        | Generic queue service                                                                                                                                        |
-| `framework/httpx`        | Fiber, CORS, logging, validation, global error handling                                                                                                      |
-| `framework/crypto`       | Password/token hashing                                                                                                                                       |
-| `framework/env`          | Generic `env:"..."` loading                                                                                                                                  |
+| `framework/queue`        | Generic Mongo queue repository, queue service, executor, indexes                                                                                             |
 | `framework/cmd/mongogen` | Mongo field generation                                                                                                                                       |
+| `framework/cmd/brunogen` | Bruno collection and API reference (`docs/API.md`) generation                                                                                                |
 
 - Domain-agnostic infrastructure belongs in `hexag`.
 - Project owns `internal/ports/domain.go`, project interfaces/sentinels, core rules, services, repositories,
   handlers/routes, config, and domain DTO/mapping.
-- Import framework symbols directly. Never re-alias, pass-through wrap, copy, vendor, or locally regenerate them.
+- Import framework symbols directly from their owning package. Never re-alias, pass-through wrap, copy, vendor, or locally regenerate them.
 - The only runtime registration allowed is project sentinel registration.
 - Removing `hexag` must require only deleting imports/usages, removing `replace`, and running `go mod tidy`.
 
@@ -59,18 +63,24 @@ Framework-owned:
 - Use explicit ports where ambiguous: `ports.UserService`, `ports.UserRepository`.
 - Route segments are kebab-case: `/api/v1/{service}/{resource-or-action}`.
 - Mongo collection names are singular snake_case.
+- Interface-based dependencies use full-word getter methods: `s.deps.GetConnectionRepository().MarkStopped()`, never direct struct fields like `s.deps.ConnectionRepo`.
+- Never use shortened abbreviations in getter methods (e.g. `GetConnectionRepository()`, not `GetConnectionRepo()`).
+- In service structs, the service's primary repository field MUST be named `repository` (e.g. `repository ports.SubscriptionRepository`), never `repo`, `subscriptionRepo`, or `<entity>Repo`.
+- Injected sibling services MUST be named by lowercase acronyms of their type name: `us ports.UserService` (not `userService`), `cs ports.CreditService` (not `creditService`), `abcs ports.AaBbCcService` (3+ words).
+- When referencing repository/service variables or arguments locally, prefer clean acronyms (e.g. `ur` for `UserRepository`) over clumsy abbreviations like `userRepo`.
 
 ## Models
 
 All domain models live in `internal/ports/domain.go` and must:
 
 - Be named `<Entity>Model`; no factories.
-- Embed `hexports.ModelBase` first; add `hexports.WithUserID` when user-scoped.
+- Embed `modelbase.ModelBase` first; add `modelbase.WithUserID` when user-scoped.
 - Use snake_case `json` and `bson` tags.
 - Implement `CollectionName() string` with a singular name.
-- Implement `WithBase(hexports.ModelBase) <Entity>Model`.
-- Implement `MarshalJSON()` via direct `hexports.MarshalOmitBase(...)`.
+- Implement `WithBase(hexports.ModelBase) <Entity>Model` via `m.ModelBase = m.ModelBase.WithBase(base)`.
+- Implement `MarshalJSON()` via direct `modelbase.MarshalOmitBase(...)`.
 - Represent polymorphism with small interfaces (e.g. `GetID`, `GetType`) and concrete implementations.
+- Always obtain collection names via `ports.<Entity>Model{}.CollectionName()`; never hardcode collection name strings in repositories, indexes, migrations, or queries.
 
 ## Rules/Enums
 
@@ -88,7 +98,7 @@ All domain models live in `internal/ports/domain.go` and must:
 - Hash bearer tokens with `hexcrypto.HashToken(token)` before any DB interaction; never store raw tokens.
 - Repository mutations return `(bson.ObjectID, error)`.
 - Repository reads return models by value: `(ports.<Entity>Model, error)`.
-- Repositories return plain `error`; services return `*hexports.ServiceError`.
+- Repositories return plain `error`; services return `*serviceerrors.ServiceError`.
 
 ## Signatures/Formatting
 
@@ -102,23 +112,47 @@ All domain models live in `internal/ports/domain.go` and must:
 - Every layer adds context with `errors.Wrap`; never `return err` or directly return a failing repository/service call.
 - Check error-only calls, `*ServiceError`-only calls, or calls with unused non-error results in an `if` initializer.
 - Ordinary declarations remain valid when returned values must be reused/mutated.
-- Use `err` for `error`; `serr` for concrete `*hexports.ServiceError`.
+- Use `err` for `error`; `serr` for concrete `*serviceerrors.ServiceError`.
 - Compare sentinels only with `errors.Is(err, ports.ErrX)`; never `==`, `!=`, or `switch err`.
 - Prefer guards/`continue` over avoidable nesting.
 - For multiple settle-worthy failure paths: named error return + one `defer` + one final-error inspection; never
   duplicate `_ = settle(...)`.
 - Define project `Err*` in `internal/ports/errors.go`; register every sentinel in `init()` with
-  `hexports.RegisterSentinel`.
+  `serviceerrors.RegisterSentinel`.
 - Framework code never owns project sentinels.
-- Build service errors with `hexports.NewServiceErrorFromCause(err, message)`.
+- Build service errors with `serviceerrors.NewServiceErrorFromCause(err, message)`.
 - `ServiceError` owns `Message` (root cause), `Code`, `Stack` (full wrapping chain), and `Violations`.
 - HTTP status comes only from `serr.Code.DefaultStatusCode()`; handlers never map it manually.
 
 ## Services
 
-- Project `ports.ServiceContext` embeds `hexports.ServiceContext` for logging and adds project `Config()`.
-- Concrete services embed `hexports.ServiceBase`, constructed with `hexports.NewBaseService(ctx)`.
+- Project `ports.ServiceContext` embeds `hexports.ServiceContext` (which provides `GetLogger()` and `GetTransactionRunner()`) and adds project `Config()`.
+- Concrete services embed `servicebase.ServiceBase`, constructed with `servicebase.NewBaseService(ctx)`.
 - Services depend only on ports, core rules, and direct framework abstractions.
+- A service must ONLY hold its own repository (`repository ports.<Entity>Repository`).
+- A service must NEVER inject another service's repository directly. Sibling domains must be accessed strictly through their service interface.
+- Injected sibling services use lowercase acronym field names: `us ports.UserService`, `cs ports.CreditService`, `abcs ports.AaBbCcService` (3+ words).
+- Bad service struct:
+```go
+type Service struct {
+    servicebase.ServiceBase
+    ctx              ports.ServiceContext
+    subscriptionRepo ports.SubscriptionRepository
+    userRepo         ports.UserRepository
+    creditService    ports.CreditService
+    txRunner         hexports.TransactionRunner
+}
+```
+- Good service struct:
+```go
+type Service struct {
+    servicebase.ServiceBase
+    repository ports.SubscriptionRepository
+    us         ports.UserService
+    cs         ports.CreditService
+}
+```
+- Never inject `TransactionRunner` as a service parameter or struct field; access it via `s.GetContext().GetTransactionRunner().Run(...)` (or `s.GetTransactionRunner().Run(...)`).
 
 ## HTTP
 
@@ -153,13 +187,16 @@ hexhttpx.New(
 
 - Mongo adapters may only generate base models during create, query, map records, translate driver errors to project
   sentinels, and wrap repository errors; no business rules.
-- Every multi-write operation uses `hexports.TransactionRunner.Run`, with runner from `hexmongo.NewRunner(...)`.
+- Always use `ports.<Entity>Model{}.CollectionName()` to specify collections; never hardcode collection strings.
+- `TransactionRunner` is managed by `ServiceContext`: runner is created in `main` via `hexmongo.NewRunner(client)` and passed to `domaincontext.New(config, logger, txRunner)`.
+- Multi-write operations use `s.GetContext().GetTransactionRunner().Run(ctx, func(ctx context.Context) error { ... })` (or `s.GetTransactionRunner().Run(...)`).
+- Never pass `TransactionRunner` directly through service constructors or store it on service structs.
 - Always pass the transaction callback’s inner `ctx` to repository calls.
 - Wrap both callback failures and the outer transaction failure.
 
 ## Pagination
 
-- Use `hexports.PaginationParams` and `hexports.Collection[T]` directly across ports.
+- Use `collection.PaginationParams` and `collection.Collection[T]` directly across ports.
 - Convert transport pagination before service calls.
 - Never create local aliases/wrappers.
 
@@ -170,7 +207,7 @@ hexhttpx.New(
 - Never hand-edit `internal/ports/mocks/mocks.go`.
 - Never regenerate framework interfaces locally.
 - Import framework mocks directly from `github.com/king-glitch/hexag/framework/ports/mocks`.
-- Framework mocks own `TransactionRunner`, `QueueRepository`, and `QueueService`.
+- Framework mocks own `TransactionRunnerAdapter`, `QueueRepository`, and `QueueService`.
 
 ## Generation
 
@@ -218,7 +255,10 @@ ServiceContext -> DB -> adapters -> services -> hexhttpx.New
 - Verify Bruno collection and `docs/API.md` were generated via `make bruno` and not manually edited.
 - Verify no framework aliases/wrappers or locally regenerated framework mocks.
 - Verify every error hop wraps and every sentinel comparison uses `errors.Is`.
-- Verify multi-writes use `TransactionRunner` and callback `ctx`.
+- Verify multi-writes use `s.GetContext().GetTransactionRunner().Run` and callback `ctx`.
+- Verify services hold only their own `repository` and inject sibling services via acronyms (`us`, `cs`, `abcs`), never foreign repositories.
+- Verify dependencies use full-word getter methods (`GetConnectionRepository()`), never bare fields or shortened getter names.
+- Verify collection names use `ports.<Entity>Model{}.CollectionName()` and are never hardcoded strings.
 - Verify handlers/repositories contain no business logic.
 - Verify kebab-case routes, singular collections, and token hashing before DB access.
 - Update `MEMORY.md` with step progress, decisions, and handoff notes for next agents.

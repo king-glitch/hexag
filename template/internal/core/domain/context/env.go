@@ -3,7 +3,7 @@ package context
 import (
 	"{{MODULE_PATH}}/internal/ports"
 
-	hexenv "github.com/king-glitch/hexag/framework/env"
+	hexenv "github.com/king-glitch/hexag/framework/api/shared/env"
 	"github.com/pkg/errors"
 )
 

@@ -1,6 +1,6 @@
 module {{MODULE_PATH}}
 
-go 1.26
+go 1.27.1
 
 require (
 	github.com/gofiber/fiber/v3 v3.5.0

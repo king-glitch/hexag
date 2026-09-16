@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/king-glitch/hexag/framework/ports"
+	serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
 )
 
 var commonDateLayouts = []string{
@@ -31,8 +31,8 @@ func Bind(ctx fiber.Ctx, out any) error {
 
 	if len(ctx.Body()) > 0 {
 		if err := ctx.Bind().Body(out); err != nil {
-			return ports.NewServiceError(
-				ports.ServiceErrorCodeValidation,
+			return serviceerrors.NewServiceError(
+				serviceerrors.ServiceErrorCodeValidation,
 				errors.Wrap(err, "failed to parse request body"),
 			)
 		}
@@ -45,12 +45,12 @@ func Bind(ctx fiber.Ctx, out any) error {
 // Supports primitive types, pointers, slices, time.Time, and bson.ObjectID.
 func BindQuery(ctx fiber.Ctx, out any) error {
 	if out == nil {
-		return ports.NewServiceError(ports.ServiceErrorCodeValidation, errors.New("bind target cannot be nil"))
+		return serviceerrors.NewServiceError(serviceerrors.ServiceErrorCodeValidation, errors.New("bind target cannot be nil"))
 	}
 
 	rv := reflect.ValueOf(out)
 	if rv.Kind() != reflect.Pointer || rv.Elem().Kind() != reflect.Struct {
-		return ports.NewServiceError(ports.ServiceErrorCodeValidation, errors.New("bind target must be a pointer to a struct"))
+		return serviceerrors.NewServiceError(serviceerrors.ServiceErrorCodeValidation, errors.New("bind target must be a pointer to a struct"))
 	}
 
 	elem := rv.Elem()
@@ -102,8 +102,8 @@ func BindQuery(ctx fiber.Ctx, out any) error {
 		if targetType == objectIDType {
 			id, err := bson.ObjectIDFromHex(firstVal)
 			if err != nil {
-				return ports.NewServiceError(
-					ports.ServiceErrorCodeValidation,
+				return serviceerrors.NewServiceError(
+					serviceerrors.ServiceErrorCodeValidation,
 					errors.Errorf("invalid ObjectID for %s", field.Name),
 				).AddError(candidates[0], "must be a valid 24-character hexadecimal ObjectID", err)
 			}
@@ -115,8 +115,8 @@ func BindQuery(ctx fiber.Ctx, out any) error {
 		if targetType == reflect.PointerTo(objectIDType) {
 			id, err := bson.ObjectIDFromHex(firstVal)
 			if err != nil {
-				return ports.NewServiceError(
-					ports.ServiceErrorCodeValidation,
+				return serviceerrors.NewServiceError(
+					serviceerrors.ServiceErrorCodeValidation,
 					errors.Errorf("invalid ObjectID for %s", field.Name),
 				).AddError(candidates[0], "must be a valid 24-character hexadecimal ObjectID", err)
 			}
@@ -130,8 +130,8 @@ func BindQuery(ctx fiber.Ctx, out any) error {
 			for _, v := range values {
 				id, err := bson.ObjectIDFromHex(v)
 				if err != nil {
-					return ports.NewServiceError(
-						ports.ServiceErrorCodeValidation,
+					return serviceerrors.NewServiceError(
+						serviceerrors.ServiceErrorCodeValidation,
 						errors.Errorf("invalid ObjectID in slice for %s", field.Name),
 					).AddError(candidates[0], "elements must be valid 24-character hexadecimal ObjectIDs", err)
 				}
@@ -145,8 +145,8 @@ func BindQuery(ctx fiber.Ctx, out any) error {
 		if targetType == timeType {
 			parsedTime, err := parseDateValue(firstVal)
 			if err != nil {
-				return ports.NewServiceError(
-					ports.ServiceErrorCodeValidation,
+				return serviceerrors.NewServiceError(
+					serviceerrors.ServiceErrorCodeValidation,
 					errors.Errorf("invalid date for %s", field.Name),
 				).AddError(candidates[0], "must be an RFC3339 timestamp or YYYY-MM-DD date", err)
 			}
@@ -158,8 +158,8 @@ func BindQuery(ctx fiber.Ctx, out any) error {
 		if targetType == reflect.PointerTo(timeType) {
 			parsedTime, err := parseDateValue(firstVal)
 			if err != nil {
-				return ports.NewServiceError(
-					ports.ServiceErrorCodeValidation,
+				return serviceerrors.NewServiceError(
+					serviceerrors.ServiceErrorCodeValidation,
 					errors.Errorf("invalid date for %s", field.Name),
 				).AddError(candidates[0], "must be an RFC3339 timestamp or YYYY-MM-DD date", err)
 			}
@@ -238,11 +238,11 @@ func BindQuery(ctx fiber.Ctx, out any) error {
 
 	if ctx.App() != nil && ctx.App().Config().StructValidator != nil {
 		if err := ctx.App().Config().StructValidator.Validate(out); err != nil {
-			var serr *ports.ServiceError
+			var serr *serviceerrors.ServiceError
 			if errors.As(err, &serr) {
 				return serr
 			}
-			return ports.NewServiceError(ports.ServiceErrorCodeValidation, err)
+			return serviceerrors.NewServiceError(serviceerrors.ServiceErrorCodeValidation, err)
 		}
 	}
 

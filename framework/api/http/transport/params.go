@@ -8,14 +8,15 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/pkg/errors"
 
-	"github.com/king-glitch/hexag/framework/ports"
+	serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
+	"github.com/king-glitch/hexag/framework/api/shared/collection"
 )
 
 func ParamInt(ctx fiber.Ctx, name string) (int, error) {
 	value, err := strconv.Atoi(ctx.Params(name))
 	if err != nil {
-		return 0, ports.NewServiceError(
-			ports.ServiceErrorCodeValidation,
+		return 0, serviceerrors.NewServiceError(
+			serviceerrors.ServiceErrorCodeValidation,
 			errors.Wrapf(err, "invalid %s path param", name),
 		).AddError(name, "this field must be a valid integer", err)
 	}
@@ -42,8 +43,8 @@ func parseDateParam(ctx fiber.Ctx, name string) (*time.Time, error) {
 		return &parsed, nil
 	}
 
-	return nil, ports.NewServiceError(
-		ports.ServiceErrorCodeValidation,
+	return nil, serviceerrors.NewServiceError(
+		serviceerrors.ServiceErrorCodeValidation,
 		errors.Errorf("invalid %s query param", name),
 	).AddError(name, "this field must be an RFC3339 timestamp or a YYYY-MM-DD date", nil)
 }
@@ -90,12 +91,11 @@ func (p Params) Offset() int {
 	return (p.SafePage() - 1) * p.SafeAmount()
 }
 
-func ParamsToPortsParams(p Params) ports.PaginationParams {
-	return ports.PaginationParams{
+func ParamsToPortsParams(p Params) collection.PaginationParams {
+	return collection.PaginationParams{
 		Page:    p.Page,
 		Amount:  p.Amount,
-		Queries: p.Queries,
-		Sorts:   p.Sorts,
+		Default: p.Amount,
 	}
 }
 
@@ -161,9 +161,9 @@ func ParseParams(ctx fiber.Ctx) Params {
 	return params
 }
 
-// ParsePaginationParamsContext parses pagination parameters directly from fiber.Ctx into ports.PaginationParams.
+// ParsePaginationParamsContext parses pagination parameters directly from fiber.Ctx into collection.PaginationParams.
 // If defaultAmount is provided and the amount query parameter is omitted, defaultAmount[0] is used.
-func ParsePaginationParamsContext(ctx fiber.Ctx, defaultAmount ...int) ports.PaginationParams {
+func ParsePaginationParamsContext(ctx fiber.Ctx, defaultAmount ...int) collection.PaginationParams {
 	p := ParseParams(ctx)
 	if len(defaultAmount) > 0 && ctx.Query("amount") == "" {
 		p.Amount = defaultAmount[0]
@@ -172,7 +172,7 @@ func ParsePaginationParamsContext(ctx fiber.Ctx, defaultAmount ...int) ports.Pag
 }
 
 // ParsePaginationParams is an alias for ParsePaginationParamsContext.
-func ParsePaginationParams(ctx fiber.Ctx, defaultAmount ...int) ports.PaginationParams {
+func ParsePaginationParams(ctx fiber.Ctx, defaultAmount ...int) collection.PaginationParams {
 	return ParsePaginationParamsContext(ctx, defaultAmount...)
 }
 

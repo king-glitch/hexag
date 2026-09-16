@@ -8,7 +8,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/king-glitch/hexag/framework/httpx/transport"
+	"github.com/king-glitch/hexag/framework/api/http/transport"
 )
 
 func TestParsePaginationParamsContext(t *testing.T) {
