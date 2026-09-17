@@ -614,6 +614,36 @@ func DoWork() {
 	assert.Contains(t, violations[0].Description, "Discarding error 'err'")
 }
 
+func TestVerifier_DisambiguatedServiceAcronyms(t *testing.T) {
+	tmpDir := t.TempDir()
+	routesDir := filepath.Join(tmpDir, "internal", "adapters", "endpoint", "fiber", "routes")
+	require.NoError(t, os.MkdirAll(routesDir, 0755))
+
+	content := `package routes
+
+import (
+	"example/internal/ports"
+)
+
+type UserHandler struct {
+	us  ports.UserService
+	as  ports.AuthenticationService
+	ss  ports.SubscriptionService
+	bos ports.BountyService
+	sgs ports.SuggestionService
+	aus ports.AuditService
+}
+`
+	filePath := filepath.Join(routesDir, "user.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	assert.Empty(t, verifier.Violations())
+}
+
 
 
 

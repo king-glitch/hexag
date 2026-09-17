@@ -387,7 +387,7 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 			if isSiblingServiceType(typeStr) {
 				expectedAcronym := computeAcronym(typeStr)
 				for _, name := range field.Names {
-					if name.Name != expectedAcronym {
+					if !isValidServiceFieldName(name.Name, typeStr) {
 						v.addViolation(
 							v.fset.Position(name.Pos()),
 							"Sibling Services",
@@ -418,7 +418,7 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 			if isSiblingServiceType(typeStr) {
 				expectedAcronym := computeAcronym(typeStr)
 				for _, name := range field.Names {
-					if unicode.IsUpper(rune(name.Name[0])) || name.Name != expectedAcronym {
+					if !isValidServiceFieldName(name.Name, typeStr) {
 						v.addViolation(
 							v.fset.Position(name.Pos()),
 							"Sibling Services",
@@ -542,7 +542,7 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 			if isSiblingServiceType(typeStr) {
 				expectedAcronym := computeAcronym(typeStr)
 				for _, name := range param.Names {
-					if name.Name != expectedAcronym {
+					if !isValidServiceFieldName(name.Name, typeStr) {
 						v.addViolation(
 							v.fset.Position(name.Pos()),
 							"Sibling Services",
@@ -1068,6 +1068,51 @@ func isServiceAcronym(str string) bool {
 		return true
 	}
 	return false
+}
+
+func isValidServiceFieldName(name, typeStr string) bool {
+	if name == "" {
+		return false
+	}
+	// Must not be exported
+	if unicode.IsUpper(rune(name[0])) {
+		return false
+	}
+	// Must not use full name or suffix "Service" or "Svc"
+	if strings.HasSuffix(name, "Service") || strings.HasSuffix(name, "Svc") {
+		return false
+	}
+	// Must be 2 to 4 lowercase letters
+	if len(name) < 2 || len(name) > 4 {
+		return false
+	}
+	for _, r := range name {
+		if !unicode.IsLower(r) {
+			return false
+		}
+	}
+	// All service acronyms end in 's'
+	if name[len(name)-1] != 's' {
+		return false
+	}
+	cleanType := typeStr
+	if idx := strings.LastIndex(cleanType, "."); idx != -1 {
+		cleanType = cleanType[idx+1:]
+	}
+	cleanType = strings.TrimPrefix(cleanType, "*")
+	return isSubsequence(name, cleanType)
+}
+
+func isSubsequence(sub, str string) bool {
+	sub = strings.ToLower(sub)
+	str = strings.ToLower(str)
+	subIdx := 0
+	for i := 0; i < len(str) && subIdx < len(sub); i++ {
+		if str[i] == sub[subIdx] {
+			subIdx++
+		}
+	}
+	return subIdx == len(sub)
 }
 
 func isBlankIdent(expr ast.Expr) bool {
