@@ -185,15 +185,15 @@ post {
 		t.Errorf("stale file handle-old.bru was NOT deleted")
 	}
 
-	// Verify generated file is in parent folder: expedition/entries/get-active.bru (not entries/active/...)
-	genFile := filepath.Join(tmpDir, "expedition", "entries", "get-active.bru")
+	// Verify generated file is in parent folder: expedition/entries/active.bru (named after leaf path)
+	genFile := filepath.Join(tmpDir, "expedition", "entries", "active.bru")
 	genContent, err := os.ReadFile(genFile)
 	if err != nil {
 		t.Fatalf("expected generated file %s, err: %v", genFile, err)
 	}
 	genStr := string(genContent)
-	if !strings.Contains(genStr, "name: get-active") {
-		t.Errorf("expected meta name 'get-active', got:\n%s", genStr)
+	if !strings.Contains(genStr, "name: active") {
+		t.Errorf("expected meta name 'active', got:\n%s", genStr)
 	}
 	if !strings.Contains(genStr, "brunogen") {
 		t.Errorf("expected brunogen signature in file, got:\n%s", genStr)
@@ -205,15 +205,15 @@ post {
 		t.Errorf("expected no per-request auth:bearer block in file, got:\n%s", genStr)
 	}
 
-	// Verify equip and unequip share the same folder under :skill_id
+	// Verify equip and unequip share the same folder under :skill_id and are named after leaf path
 	skillDir := filepath.Join(tmpDir, "character", "characters", "character_id", "skills", "skill_id")
-	equipFile := filepath.Join(skillDir, "equip-skill.bru")
-	unequipFile := filepath.Join(skillDir, "unequip-skill.bru")
+	equipFile := filepath.Join(skillDir, "equip.bru")
+	unequipFile := filepath.Join(skillDir, "unequip.bru")
 	if _, err := os.Stat(equipFile); err != nil {
-		t.Errorf("expected equip-skill.bru in %s, err: %v", skillDir, err)
+		t.Errorf("expected equip.bru in %s, err: %v", skillDir, err)
 	}
 	if _, err := os.Stat(unequipFile); err != nil {
-		t.Errorf("expected unequip-skill.bru in %s, err: %v", skillDir, err)
+		t.Errorf("expected unequip.bru in %s, err: %v", skillDir, err)
 	}
 	// Verify no redundant equip/ and unequip/ folders exist
 	if _, err := os.Stat(filepath.Join(skillDir, "equip")); !os.IsNotExist(err) {

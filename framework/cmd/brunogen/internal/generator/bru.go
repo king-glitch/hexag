@@ -52,8 +52,8 @@ func Write(routes []parser.Route, basePath, outDir, collectionName string) error
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
-		content := renderRoute(route, basePath)
-		action := actionName(route.HandlerMethod)
+		action := routeActionName(route, routes)
+		content := renderRoute(route, basePath, action)
 		file := filepath.Join(dir, action+".bru")
 		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
 			return err
@@ -163,6 +163,39 @@ func isPreservedSpecialFile(relPath string) bool {
 
 func isGeneratedFile(content []byte, filename string) bool {
 	return strings.Contains(string(content), generatorSignature) || strings.HasPrefix(filename, "handle-")
+}
+
+func routeActionName(route parser.Route, allRoutes []parser.Route) string {
+	full := append(append([]string{}, route.GroupSegments...), route.PathSegments...)
+	if len(full) == 0 {
+		return actionName(route.HandlerMethod)
+	}
+
+	last := full[len(full)-1]
+	if strings.HasPrefix(last, ":") || last == "" {
+		return actionName(route.HandlerMethod)
+	}
+
+	thisPath := strings.Join(full, "/")
+	for _, other := range allRoutes {
+		otherFull := append(append([]string{}, other.GroupSegments...), other.PathSegments...)
+		otherPath := strings.Join(otherFull, "/")
+		if len(otherPath) > len(thisPath) && strings.HasPrefix(otherPath, thisPath+"/") {
+			return actionName(route.HandlerMethod)
+		}
+	}
+
+	for _, other := range allRoutes {
+		if other.Method == route.Method && other.HandlerMethod == route.HandlerMethod {
+			continue
+		}
+		otherFull := append(append([]string{}, other.GroupSegments...), other.PathSegments...)
+		if strings.Join(otherFull, "/") == thisPath {
+			return actionName(route.HandlerMethod)
+		}
+	}
+
+	return parser.ToKebabCase(strings.TrimPrefix(last, ":"))
 }
 
 func actionName(handlerMethod string) string {
@@ -384,7 +417,7 @@ func kebabSegments(segments []string) []string {
 	return out
 }
 
-func renderRoute(route parser.Route, basePath string) string {
+func renderRoute(route parser.Route, basePath, action string) string {
 	fullSegments := append(append([]string{}, route.GroupSegments...), route.PathSegments...)
 	urlPath := "/" + strings.Join(fullSegments, "/")
 
@@ -403,7 +436,6 @@ func renderRoute(route parser.Route, basePath string) string {
 	}
 
 	var b strings.Builder
-	action := actionName(route.HandlerMethod)
 	fmt.Fprintf(&b, "meta {\n  name: %s\n  type: http\n  seq: 1\n  tags: [\n    brunogen\n  ]\n}\n\n", action)
 
 	bodyMode := "none"
