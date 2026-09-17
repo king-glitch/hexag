@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/king-glitch/hexag/framework/cmd/mongogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/mongogen/parser"
 	"github.com/stretchr/testify/require"
 )
 

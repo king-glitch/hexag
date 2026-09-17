@@ -165,6 +165,7 @@ Framework-owned (`github.com/king-glitch/hexag`):
 | `framework/cmd/mongogen`          | Mongo field generation                                                                                                                                                |
 | `framework/cmd/brunogen`          | Bruno collection and API reference (`docs/API.md`) generation                                                                                                         |
 | `framework/cmd/verify`            | Architecture, naming, and style rule verification (`hexag verify`, `make verify`)                                                                                     |
+| `cmd/hexag`                       | Unified CLI (`hexag verify`, `hexag bruno`, `hexag mongo`, `hexag new`, `hexag update`)                                                                               |
 
 - Import framework symbols directly from their owning package. Never re-alias, pass-through wrap, copy, vendor, or
   locally regenerate them.

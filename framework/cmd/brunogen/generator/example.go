@@ -3,7 +3,7 @@ package generator
 import (
 	"strings"
 
-	"github.com/king-glitch/hexag/framework/cmd/brunogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/brunogen/parser"
 )
 
 // ExampleFields builds a JSON-marshalable example value from resolved

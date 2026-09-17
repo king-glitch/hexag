@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hexag CLI — thin dispatcher for hexag/scripts/*.sh.
+# hexag CLI runner — delegates to cmd/hexag Go CLI.
 set -euo pipefail
 
 SOURCE="${BASH_SOURCE[0]}"
@@ -8,42 +8,6 @@ while [ -L "$SOURCE" ]; do
   SOURCE="$(readlink "$SOURCE")"
   [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
 done
-SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+HEXAG_ROOT="$(cd "$(dirname "$SOURCE")/.." && pwd)"
 
-usage() {
-  echo "usage: hexag <command> [args]"
-  echo ""
-  echo "commands:"
-  echo "  new <module-path> <dest-dir> [db-name]   scaffold a new hexag project"
-  echo "  update [dest-dir] [--mockery] [--makefile] [--all]  update AGENTS.md, CLAUDE.md, etc."
-  echo "  bruno [flags]                            generate Bruno API collection and docs/API.md"
-  echo "  verify [flags] [path]                    verify code against AGENTS.md architecture rules"
-}
-
-cmd="${1:-}"
-case "$cmd" in
-  new)
-    shift
-    exec "$SCRIPT_DIR/new.sh" "$@"
-    ;;
-  update)
-    shift
-    exec "$SCRIPT_DIR/update.sh" "$@"
-    ;;
-  bruno)
-    shift
-    exec "$SCRIPT_DIR/bruno.sh" "$@"
-    ;;
-  verify)
-    shift
-    exec "$SCRIPT_DIR/verify.sh" "$@"
-    ;;
-  -h|--help|help|"")
-    usage
-    ;;
-  *)
-    echo "hexag: unknown command '$cmd'" >&2
-    usage >&2
-    exit 1
-    ;;
-esac
+exec go run "$HEXAG_ROOT/cmd/hexag" "$@"

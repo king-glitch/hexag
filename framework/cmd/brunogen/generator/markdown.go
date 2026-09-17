@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/king-glitch/hexag/framework/cmd/brunogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/brunogen/parser"
 )
 
 // WriteMarkdown renders a single API.md contract reference grouped by route

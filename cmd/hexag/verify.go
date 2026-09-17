@@ -10,35 +10,34 @@ import (
 	"github.com/king-glitch/hexag/framework/cmd/verify/rules"
 )
 
-func main() {
-	var (
-		verbose = flag.Bool("v", false, "verbose output")
-		dir     = flag.String("dir", "", "target directory to verify (defaults to current directory)")
-	)
-	flag.Parse()
+func runVerify(args []string) error {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	verbose := fs.Bool("v", false, "verbose output")
+	dir := fs.String("dir", "", "target directory to verify (defaults to current directory)")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	targetDir := *dir
 	if targetDir == "" {
-		if flag.NArg() > 0 {
-			targetDir = flag.Arg(0)
+		if fs.NArg() > 0 {
+			targetDir = fs.Arg(0)
 		} else {
 			targetDir = "."
 		}
 	}
 
-	// If argument ends with /..., strip it
 	targetDir = strings.TrimSuffix(targetDir, "/...")
 	targetDir = strings.TrimSuffix(targetDir, "...")
 
 	absDir, err := filepath.Abs(targetDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: failed to resolve directory: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to resolve directory: %w", err)
 	}
 
 	verifier := rules.NewVerifier()
 
-	// Check whether to verify internal/ or template/internal/ or whole directory
 	internalDir := filepath.Join(absDir, "internal")
 	templateInternalDir := filepath.Join(absDir, "template", "internal")
 
@@ -51,7 +50,6 @@ func main() {
 	}
 
 	if len(dirsToVerify) == 0 {
-		// Fall back to scanning the provided directory directly
 		dirsToVerify = append(dirsToVerify, absDir)
 	}
 
@@ -60,8 +58,7 @@ func main() {
 			fmt.Printf("Verifying directory: %s\n", d)
 		}
 		if err := verifier.VerifyPath(d); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 	}
 
@@ -84,4 +81,5 @@ func main() {
 	}
 
 	fmt.Printf("✓ hexag verify: all architecture and naming rules passed (%d Go files checked)\n", verifier.FileCount())
+	return nil
 }

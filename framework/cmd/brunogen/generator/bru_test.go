@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/king-glitch/hexag/framework/cmd/brunogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/brunogen/parser"
 )
 
 func TestActionName(t *testing.T) {

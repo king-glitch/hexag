@@ -11,7 +11,7 @@ import (
 
 func TestVerifier_TemplatePasses(t *testing.T) {
 	// Verify that the template directory in hexag passes all rules cleanly
-	templateDir, err := filepath.Abs("../../../../../template/internal")
+	templateDir, err := filepath.Abs("../../../../template/internal")
 	require.NoError(t, err)
 
 	verifier := NewVerifier()

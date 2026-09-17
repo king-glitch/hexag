@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/king-glitch/hexag/framework/cmd/mongogen/internal/generator"
-	"github.com/king-glitch/hexag/framework/cmd/mongogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/mongogen/generator"
+	"github.com/king-glitch/hexag/framework/cmd/mongogen/parser"
 )
 
 func main() {

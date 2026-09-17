@@ -7,7 +7,7 @@ import (
 	"sort"
 	"text/template"
 
-	"github.com/king-glitch/hexag/framework/cmd/mongogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/mongogen/parser"
 )
 
 // FieldImportPath is the framework package generated model files import for

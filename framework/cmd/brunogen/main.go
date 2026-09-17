@@ -13,8 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/king-glitch/hexag/framework/cmd/brunogen/internal/generator"
-	"github.com/king-glitch/hexag/framework/cmd/brunogen/internal/parser"
+	"github.com/king-glitch/hexag/framework/cmd/brunogen/generator"
+	"github.com/king-glitch/hexag/framework/cmd/brunogen/parser"
 )
 
 func main() {
