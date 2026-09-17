@@ -36,6 +36,8 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **Time Handling**    | Calling `time.Now()` in services/handlers       | Capture once: `at := hextransport.RequestTime(c)`            |
 | **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
 | **Validation**       | Re-checking string length/enums in service      | Let HTTP validator tags handle transport validation          |
+| **Enums**            | Enums without `IsValid() bool`                  | All domain enums must implement `IsValid() bool`             |
+| **Enum Validation**   | `validate:"oneof=active ..."`                   | Use typed enum directly; framework autodetects `IsValid()`   |
 | **Verification**     | Skipping `make verify` check                    | Run `make verify` (must exit code 0 before updating MEMORY)  |
 
 ---
@@ -192,6 +194,28 @@ All domain models live in `internal/ports/domain.go` and must:
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
 - Call domain functions directly; never hide domain/framework functions behind trivial service wrappers.
 - Define typed enums/constants in `internal/ports`; never use raw strings in domain or service code.
+- All typed domain enums defined in `internal/ports` MUST implement `IsValid() bool` (implementing `hexports.Validatable`):
+
+```go
+type PlanType string
+
+const (
+    PlanTypeFree    PlanType = "free"
+    PlanTypePremium PlanType = "premium"
+)
+
+func (p PlanType) IsValid() bool {
+    switch p {
+    case PlanTypeFree, PlanTypePremium:
+        return true
+    default:
+        return false
+    }
+}
+```
+
+- In HTTP request DTOs, use typed domain enums directly (e.g. `Plan PlanType ` + "`" + `json:"plan"` + "`" + `).
+- Never write hardcoded `validate:"oneof=..."` tags for enum values. The framework validator automatically detects any field implementing `hexports.Validatable` and validates it via `IsValid()`.
 
 ---
 
@@ -304,5 +328,6 @@ Execute this checklist before reporting any task complete:
 - [ ] **Transactions:** Multi-write mutations run via `s.GetTransactionRunner().Run` using the inner callback context.
 - [ ] **Generators:** Ran `make generate` and `make bruno` if domain models or HTTP routes were modified.
 - [ ] **Hand-Edits:** Verified zero manual modifications to generated Mongo models or Bruno documents.
+- [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`); zero hardcoded `oneof=` validator tags.
 - [ ] **Memory:** Updated `MEMORY.md` with step progress, state, and next actions.
 - [ ] **Release:** Commit completed task files and tag release with bumped patch version (e.g. v0.0.x -> v0.0.x+1); push commits and tags so Go package consumers can immediately update.

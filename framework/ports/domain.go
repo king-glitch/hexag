@@ -19,3 +19,7 @@ type ModelBase interface {
 type BaseSetter[T any] interface {
 	WithBase(ModelBase) T
 }
+
+type Validatable interface {
+	IsValid() bool
+}

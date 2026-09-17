@@ -8,46 +8,55 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	errors2 "github.com/king-glitch/hexag/framework/api/service/errors"
+	hexports "github.com/king-glitch/hexag/framework/ports"
 	"github.com/pkg/errors"
 )
-
-type Validatable interface {
-	IsValid() bool
-}
 
 type Base struct {
 	validate *validator.Validate
 }
 
+type validatableFieldError struct {
+	field   string
+	message string
+}
+
 func NewStructValidator() fiber.StructValidator {
 	v := validator.New()
-	_ = v.RegisterValidation(
-		"enum",
-		func(fl validator.FieldLevel) bool {
-			if val, ok := fl.Field().Interface().(Validatable); ok {
-				return val.IsValid()
-			}
-			return false
-		},
-	)
+	validateValidatable := func(fl validator.FieldLevel) bool {
+		if val, ok := fl.Field().Interface().(hexports.Validatable); ok {
+			return val.IsValid()
+		}
+		return false
+	}
+	_ = v.RegisterValidation("validatable", validateValidatable)
+	_ = v.RegisterValidation("enum", validateValidatable)
 	return Base{validate: v}
 }
 
 func (v Base) Validate(out any) error {
-	err := v.validate.Struct(out)
-	if err == nil {
+	if out == nil {
 		return nil
 	}
 
-	var validationErrors validator.ValidationErrors
-	if !errors.As(err, &validationErrors) {
-		return errors.Wrap(err, "failed to validate request")
+	val := reflect.ValueOf(out)
+	if val.Kind() == reflect.Pointer {
+		if val.IsNil() {
+			return nil
+		}
+		val = val.Elem()
 	}
 
-	fieldType := reflect.TypeOf(out)
-	if fieldType.Kind() == reflect.Pointer {
-		fieldType = fieldType.Elem()
+	var validationErrors validator.ValidationErrors
+	if err := v.validate.Struct(out); err != nil {
+		if !errors.As(err, &validationErrors) {
+			return errors.Wrap(err, "failed to validate request")
+		}
 	}
+
+	// Track fields already reported by validator.Validate
+	reportedFields := make(map[string]bool)
+	fieldType := val.Type()
 
 	serviceErr := errors2.NewServiceError(
 		errors2.ServiceErrorCodeValidation,
@@ -58,19 +67,155 @@ func (v Base) Validate(out any) error {
 		fieldName := fieldErr.Field()
 
 		if field, ok := fieldType.FieldByName(fieldErr.Field()); ok {
-			if tag, _, _ := strings.Cut(field.Tag.Get("json"), ","); tag != "" {
-				fieldName = tag
-			} else if tag, _, _ := strings.Cut(field.Tag.Get("form"), ","); tag != "" {
-				fieldName = tag
-			} else if tag, _, _ := strings.Cut(field.Tag.Get("query"), ","); tag != "" {
-				fieldName = tag
-			}
+			fieldName = getFieldName(field)
 		}
 
+		reportedFields[fieldName] = true
 		serviceErr = serviceErr.AddError(fieldName, validationMessage(fieldErr), nil)
 	}
 
+	// Autodetect any fields implementing hexports.Validatable (IsValid() bool)
+	var validatableErrors []validatableFieldError
+	collectValidatableErrors(val, "", &validatableErrors)
+
+	for _, ve := range validatableErrors {
+		if !reportedFields[ve.field] {
+			reportedFields[ve.field] = true
+			serviceErr = serviceErr.AddError(ve.field, ve.message, nil)
+		}
+	}
+
+	if len(reportedFields) == 0 {
+		return nil
+	}
+
 	return serviceErr
+}
+
+func collectValidatableErrors(val reflect.Value, prefix string, errs *[]validatableFieldError) {
+	if !val.IsValid() {
+		return
+	}
+
+	if val.Kind() == reflect.Pointer {
+		if val.IsNil() {
+			return
+		}
+		val = val.Elem()
+	}
+
+	if val.Kind() != reflect.Struct {
+		return
+	}
+
+	t := val.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+
+		fieldVal := val.Field(i)
+		fieldName := getFieldName(sf)
+		if prefix != "" {
+			fieldName = prefix + "." + fieldName
+		}
+
+		// Direct check for hexports.Validatable implementation (value or pointer receiver)
+		if fieldVal.CanInterface() {
+			if validatable, ok := fieldVal.Interface().(hexports.Validatable); ok {
+				if !fieldVal.IsZero() && !validatable.IsValid() {
+					*errs = append(*errs, validatableFieldError{
+						field:   fieldName,
+						message: "this field contains an invalid value",
+					})
+					continue
+				}
+			} else if fieldVal.CanAddr() {
+				if validatable, ok := fieldVal.Addr().Interface().(hexports.Validatable); ok {
+					if !fieldVal.IsZero() && !validatable.IsValid() {
+						*errs = append(*errs, validatableFieldError{
+							field:   fieldName,
+							message: "this field contains an invalid value",
+						})
+						continue
+					}
+				}
+			}
+		}
+
+		// Pointer to validatable check
+		if fieldVal.Kind() == reflect.Pointer && !fieldVal.IsNil() && fieldVal.CanInterface() {
+			if validatable, ok := fieldVal.Interface().(hexports.Validatable); ok {
+				if !validatable.IsValid() {
+					*errs = append(*errs, validatableFieldError{
+						field:   fieldName,
+						message: "this field contains an invalid value",
+					})
+					continue
+				}
+			} else if fieldVal.Elem().CanInterface() {
+				if validatable, ok := fieldVal.Elem().Interface().(hexports.Validatable); ok {
+					if !validatable.IsValid() {
+						*errs = append(*errs, validatableFieldError{
+							field:   fieldName,
+							message: "this field contains an invalid value",
+						})
+						continue
+					}
+				}
+			}
+		}
+
+		// Slice of validatables
+		if (fieldVal.Kind() == reflect.Slice || fieldVal.Kind() == reflect.Array) && fieldVal.CanInterface() {
+			for j := 0; j < fieldVal.Len(); j++ {
+				elem := fieldVal.Index(j)
+				if elem.CanInterface() {
+					if validatable, ok := elem.Interface().(hexports.Validatable); ok {
+						if !elem.IsZero() && !validatable.IsValid() {
+							elemName := fmt.Sprintf("%s[%d]", fieldName, j)
+							*errs = append(*errs, validatableFieldError{
+								field:   elemName,
+								message: "this field contains an invalid value",
+							})
+						}
+					} else if elem.CanAddr() {
+						if validatable, ok := elem.Addr().Interface().(hexports.Validatable); ok {
+							if !elem.IsZero() && !validatable.IsValid() {
+								elemName := fmt.Sprintf("%s[%d]", fieldName, j)
+								*errs = append(*errs, validatableFieldError{
+									field:   elemName,
+									message: "this field contains an invalid value",
+								})
+							}
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		// Nested struct
+		if fieldVal.Kind() == reflect.Struct {
+			collectValidatableErrors(fieldVal, fieldName, errs)
+		} else if fieldVal.Kind() == reflect.Pointer && !fieldVal.IsNil() && fieldVal.Elem().Kind() == reflect.Struct {
+			collectValidatableErrors(fieldVal.Elem(), fieldName, errs)
+		}
+	}
+}
+
+func getFieldName(sf reflect.StructField) string {
+	if tag, _, _ := strings.Cut(sf.Tag.Get("json"), ","); tag != "" && tag != "-" {
+		return tag
+	}
+	if tag, _, _ := strings.Cut(sf.Tag.Get("form"), ","); tag != "" && tag != "-" {
+		return tag
+	}
+	if tag, _, _ := strings.Cut(sf.Tag.Get("query"), ","); tag != "" && tag != "-" {
+		return tag
+	}
+	return sf.Name
 }
 
 func validationMessage(fieldErr validator.FieldError) string {

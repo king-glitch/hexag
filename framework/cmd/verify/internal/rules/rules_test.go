@@ -226,3 +226,73 @@ func (h UserHandler) unexported(c fiber.Ctx) error {
 	// 4. c.Query("page")
 	assert.Len(t, violations, 4)
 }
+
+func TestVerifier_Enums(t *testing.T) {
+	tmpDir := t.TempDir()
+	portsDir := filepath.Join(tmpDir, "internal", "ports")
+	require.NoError(t, os.MkdirAll(portsDir, 0755))
+
+	content := `package ports
+
+type Status string
+
+const (
+	StatusActive  Status = "active"
+	StatusPending Status = "pending"
+)
+
+type Role string
+
+const (
+	RoleAdmin Role = "admin"
+	RoleUser  Role = "user"
+)
+
+func (r Role) IsValid() bool {
+	return r == RoleAdmin || r == RoleUser
+}
+`
+	filePath := filepath.Join(portsDir, "enum.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	// Expected:
+	// Status does NOT implement IsValid() bool -> violation!
+	// Role implements IsValid() bool -> OK!
+	require.Len(t, violations, 1)
+	assert.Equal(t, "Enums", violations[0].Category)
+	assert.Contains(t, violations[0].Description, "Status")
+}
+
+func TestVerifier_OneofValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	routesDir := filepath.Join(tmpDir, "internal", "adapters", "endpoint", "fiber", "routes")
+	require.NoError(t, os.MkdirAll(routesDir, 0755))
+
+	content := `package routes
+
+type CreateUserRequest struct {
+	Name   string ` + "`json:\"name\" validate:\"required\"`" + `
+	Status string ` + "`json:\"status\" validate:\"required,oneof=active pending\"`" + `
+}
+`
+	filePath := filepath.Join(routesDir, "user.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	// Expected:
+	// oneof= in request struct -> violation!
+	require.Len(t, violations, 1)
+	assert.Equal(t, "Validation", violations[0].Category)
+	assert.Contains(t, violations[0].Description, "Status")
+	assert.Contains(t, violations[0].Description, "oneof=")
+}
+

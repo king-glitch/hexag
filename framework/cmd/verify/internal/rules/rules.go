@@ -50,18 +50,24 @@ func (v Violation) Format(index, total int) string {
 }
 
 type Verifier struct {
-	fset       *token.FileSet
-	violations []Violation
-	fileCount  int
+	fset              *token.FileSet
+	violations        []Violation
+	fileCount         int
+	portsEnumTypes    map[string]token.Position
+	portsEnumMethods  map[string]bool
+	invariantsChecked bool
 }
 
 func NewVerifier() *Verifier {
 	return &Verifier{
-		fset: token.NewFileSet(),
+		fset:             token.NewFileSet(),
+		portsEnumTypes:   make(map[string]token.Position),
+		portsEnumMethods: make(map[string]bool),
 	}
 }
 
 func (v *Verifier) Violations() []Violation {
+	v.checkFinalInvariants()
 	return v.violations
 }
 
@@ -238,6 +244,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 	isEndpointDir := strings.Contains(slashPath, "/adapters/endpoint/")
 	isDatabaseDir := strings.Contains(slashPath, "/adapters/database/")
 	isPortsDomain := strings.HasSuffix(slashPath, "internal/ports/domain.go")
+	isPortsDir := strings.Contains(slashPath, "/internal/ports/") && !strings.Contains(slashPath, "/internal/ports/mocks/")
 
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
@@ -245,6 +252,23 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 		}
 
 		switch node := n.(type) {
+		case *ast.GenDecl:
+			if isPortsDir && node.Tok == token.CONST {
+				lastType := ""
+				for _, spec := range node.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok {
+						if vs.Type != nil {
+							lastType = formatTypeExpr(vs.Type)
+						}
+						if lastType != "" && !strings.Contains(lastType, ".") && !isBuiltinGoType(lastType) {
+							if _, exists := v.portsEnumTypes[lastType]; !exists {
+								v.portsEnumTypes[lastType] = v.fset.Position(vs.Pos())
+							}
+						}
+					}
+				}
+			}
+
 		case *ast.TypeSpec:
 			v.checkTypeSpec(filePath, node, isServiceDir, isEndpointDir)
 
@@ -352,10 +376,45 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 			)
 		}
 	}
+
+	// Check forbidden oneof= in request struct tags
+	if isEndpointDir && strings.HasSuffix(ts.Name.Name, "Request") {
+		for _, field := range st.Fields.List {
+			if field.Tag != nil {
+				tagStr := field.Tag.Value
+				if strings.Contains(tagStr, "oneof=") || strings.Contains(tagStr, "oneof =") {
+					fieldName := ""
+					if len(field.Names) > 0 {
+						fieldName = field.Names[0].Name
+					}
+					v.addViolation(
+						v.fset.Position(field.Pos()),
+						"Validation",
+						"Hardcoding enum values with 'oneof=...' in validator tags is forbidden. Use a typed domain enum implementing hexports.Validatable (IsValid() bool); the framework validator autodetects it automatically.",
+						fmt.Sprintf("Field '%s' in struct '%s' uses forbidden hardcoded validation tag 'oneof='.", fieldName, ts.Name.Name),
+						"Remove 'oneof=...' from tag and use a typed domain enum implementing IsValid() bool. The framework validator will autodetect and validate it.",
+					)
+				}
+			}
+		}
+	}
 }
 
 func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir, isEndpointDir, isPortsDomain bool) {
 	pos := v.fset.Position(fn.Pos())
+
+	// Check if this method implements IsValid() bool for an enum type
+	if fn.Name.Name == "IsValid" && fn.Recv != nil && len(fn.Recv.List) > 0 {
+		recvType := formatTypeExpr(fn.Recv.List[0].Type)
+		recvType = strings.TrimPrefix(recvType, "*")
+		if fn.Type.Params == nil || len(fn.Type.Params.List) == 0 {
+			if fn.Type.Results != nil && len(fn.Type.Results.List) == 1 {
+				if formatTypeExpr(fn.Type.Results.List[0].Type) == "bool" {
+					v.portsEnumMethods[recvType] = true
+				}
+			}
+		}
+	}
 
 	// Check Service constructor
 	if isServiceDir && fn.Name.Name == "NewService" && fn.Type.Params != nil {
@@ -777,5 +836,37 @@ func exprToString(expr ast.Expr) string {
 		return e.Value
 	default:
 		return ""
+	}
+}
+
+func (v *Verifier) checkFinalInvariants() {
+	if v.invariantsChecked {
+		return
+	}
+	v.invariantsChecked = true
+
+	for typeName, pos := range v.portsEnumTypes {
+		if !v.portsEnumMethods[typeName] {
+			v.addViolation(
+				pos,
+				"Enums",
+				"All domain enums defined in internal/ports MUST implement 'IsValid() bool' (implementing hexports.Validatable).",
+				fmt.Sprintf("Domain enum type '%s' does not implement 'IsValid() bool'.", typeName),
+				fmt.Sprintf("Implement 'func (e %s) IsValid() bool' with a switch statement covering all declared %s constants.", typeName, typeName),
+			)
+		}
+	}
+}
+
+func isBuiltinGoType(t string) bool {
+	switch t {
+	case "string", "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+		"float32", "float64", "complex64", "complex128",
+		"bool", "byte", "rune", "error", "any",
+		"time.Duration", "time.Time":
+		return true
+	default:
+		return false
 	}
 }
