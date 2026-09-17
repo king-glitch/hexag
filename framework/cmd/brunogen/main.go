@@ -26,6 +26,7 @@ func main() {
 		outFlag            string
 		apiMDFlag          string
 		collectionNameFlag string
+		excludeFlag        string
 	)
 
 	flag.StringVar(&routesFlag, "routes", "internal/adapters/endpoint/fiber/routes", "Directory of route files to parse")
@@ -35,6 +36,7 @@ func main() {
 	flag.StringVar(&outFlag, "out", "docs/bruno", "Output directory for the generated Bruno collection")
 	flag.StringVar(&apiMDFlag, "api-md", "", "Optional path to also write a Markdown API contract reference")
 	flag.StringVar(&collectionNameFlag, "collection-name", "", "Bruno collection name (default: module name)")
+	flag.StringVar(&excludeFlag, "exclude", "", "Comma-separated wildcard or regex patterns of routes to exclude (e.g. '/api/v1/authentication/*', '*archive*')")
 	flag.Parse()
 
 	module, err := findModulePath(".")
@@ -52,6 +54,26 @@ func main() {
 	}
 	if len(routes) == 0 {
 		log.Fatalf("No routes discovered under %s (check -composition wiring)", routesFlag)
+	}
+
+	var excludePatterns []string
+	if excludeFlag != "" {
+		for _, p := range strings.Split(excludeFlag, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				excludePatterns = append(excludePatterns, p)
+			}
+		}
+	}
+	if len(excludePatterns) > 0 {
+		var filtered []parser.Route
+		for _, r := range routes {
+			if generator.MatchesExclude(r, basePathFlag, excludePatterns) {
+				continue
+			}
+			filtered = append(filtered, r)
+		}
+		routes = filtered
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outFlag), 0755); err != nil {
