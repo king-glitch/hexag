@@ -68,6 +68,13 @@ func Write(routes []parser.Route, basePath, outDir, collectionName string) error
 		}
 	}
 
+	collectionFile := filepath.Join(outDir, "collection.bru")
+	if _, err := os.Stat(collectionFile); os.IsNotExist(err) {
+		if err := os.WriteFile(collectionFile, []byte(defaultCollectionBru()), 0644); err != nil {
+			return err
+		}
+	}
+
 	brunoJSON := filepath.Join(outDir, "bruno.json")
 	if _, err := os.Stat(brunoJSON); os.IsNotExist(err) {
 		if err := os.WriteFile(brunoJSON, []byte(defaultBrunoJSON(collectionName)), 0644); err != nil {
@@ -374,11 +381,7 @@ func renderRoute(route parser.Route, basePath string) string {
 	if hasBody {
 		bodyMode = "json"
 	}
-	authMode := "none"
-	if route.RequiresAuth {
-		authMode = "bearer"
-	}
-	fmt.Fprintf(&b, "%s {\n  url: {{BASE_URL}}%s%s\n  body: %s\n  auth: %s\n}\n", method, urlPath, queryString, bodyMode, authMode)
+	fmt.Fprintf(&b, "%s {\n  url: {{BASE_URL}}%s%s\n  body: %s\n  auth: inherit\n}\n", method, urlPath, queryString, bodyMode)
 
 	if hasBody {
 		b.WriteString("\nheaders {\n  Content-Type: application/json\n}\n")
@@ -398,10 +401,6 @@ func renderRoute(route parser.Route, basePath string) string {
 			fmt.Fprintf(&b, "  %s: %v\n", kv.Key, kv.Value)
 		}
 		b.WriteString("}\n")
-	}
-
-	if route.RequiresAuth {
-		b.WriteString("\nauth:bearer {\n  token: {{TOKEN}}\n}\n")
 	}
 
 	if hasBody {
@@ -485,3 +484,8 @@ func defaultBrunoJSON(name string) string {
 func defaultEnvironment(basePath string) string {
 	return fmt.Sprintf("vars {\n  BASE_URL: http://localhost:8000%s\n  TOKEN: \n}\n", basePath)
 }
+
+func defaultCollectionBru() string {
+	return "auth {\n  mode: bearer\n}\n\nauth:bearer {\n  token: {{TOKEN}}\n}\n"
+}
+
