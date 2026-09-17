@@ -125,8 +125,11 @@ func (p *Parser) ParseFile(filePath string, structName string) ([]StructMeta, er
 		fields := p.extractFields(structType, structMap, packageName, importSet, "", visited)
 
 		varName := target
+		structName := target
 		if strings.HasSuffix(target, "Model") && len(target) > 5 {
 			varName = strings.TrimSuffix(target, "Model")
+		} else {
+			structName = target + "Model"
 		}
 
 		fileName := ToKebabCase(varName) + ".go"
@@ -139,7 +142,7 @@ func (p *Parser) ParseFile(filePath string, structName string) ([]StructMeta, er
 		results = append(
 			results, StructMeta{
 				PackageName: packageName,
-				StructName:  target,
+				StructName:  structName,
 				VarName:     varName,
 				FileName:    fileName,
 				Imports:     imports,
@@ -254,10 +257,14 @@ func (p *Parser) extractFields(
 
 			nestedStructTypeName := ""
 			if len(subFields) > 0 {
-				if nestedTypeName != "" {
-					nestedStructTypeName = nestedTypeName + "Type"
+				base := nestedTypeName
+				if base == "" {
+					base = goName
+				}
+				if strings.HasSuffix(base, "Model") && len(base) > 5 {
+					nestedStructTypeName = base
 				} else {
-					nestedStructTypeName = goName + "Type"
+					nestedStructTypeName = base + "Model"
 				}
 			}
 
