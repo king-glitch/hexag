@@ -23,6 +23,7 @@ Hand-off state for the next agent. Rules: `AGENTS.md`.
 - Struct accessor consistency (v0.0.30): if a struct has any `Get...()` method (no params, returns value), ALL its fields must be unexported. Pure data structs (no getters) are unaffected. Embedded/anonymous fields excluded. Catches `runtime.Deps` pattern with 10 exported fields + getter methods.
 - Supported disambiguated service acronyms: valid unexported 2-4 lowercase letter acronyms that are subsequences of the service interface name ending in 's' (e.g. `aus` for `ports.AuditService` when `as` is taken by `ports.AuthenticationService`, `sgs`/`sugs` for `ports.SuggestionService`, `bos` for `ports.BountyService`, `ss` for `ports.BotScriptService`) are accepted.
 - Constants & Sentinels location (v0.0.32): All constants must be defined in the constant folder ('internal/core/constant/') or typed enums in 'internal/ports/'. Defining local constants (e.g. const loadTimeout = ...) in adapter or service files is forbidden. Sentinel errors must be defined globally in 'internal/ports/errors.go'; defining local error variables (e.g. var errNeedsRelogin = errors.New(...)) outside ports is forbidden.
+- Typed Enums vs Constants (v0.0.33): Typed enums (e.g. `type EventKind string`, `const EventFoo EventKind = "..."`) defined outside `internal/ports/` are strictly classified under `Enums` and must be moved to `internal/ports/enum.go` (implementing `IsValid() bool`), not to `constant/`. Only primitive/untyped constants belong in `internal/core/constant/`.
 
 ## Hard-won facts
 

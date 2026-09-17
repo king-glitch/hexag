@@ -1073,3 +1073,37 @@ func (s Status) IsValid() bool {
 	})
 }
 
+func TestVerifier_EnumsOutsidePorts(t *testing.T) {
+	t.Run("typed enum defined outside ports is violation under Enums", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "core", "domain", "game")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package game
+
+type EventKind string
+
+const (
+	EventPlayerInit  EventKind = "player_init"
+	EventPlayersInit EventKind = "players_init"
+)
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "decode.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		// Should NOT be categorized as Constants
+		constViolations := filterByCategory(verifier.Violations(), "Constants")
+		assert.Empty(t, constViolations)
+
+		// MUST be categorized as Enums
+		enumViolations := filterByCategory(verifier.Violations(), "Enums")
+		require.Len(t, enumViolations, 2)
+		assert.Contains(t, enumViolations[0].Description, "EventKind")
+		assert.Contains(t, enumViolations[0].Description, "EventPlayerInit")
+		assert.Contains(t, enumViolations[0].Suggestion, "internal/ports/enum.go")
+	})
+}
+
+

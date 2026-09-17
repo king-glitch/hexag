@@ -353,21 +353,42 @@ func (v *Verifier) checkGenDecl(filePath string, decl *ast.GenDecl, isInternal, 
 		}
 	}
 
-	// Check constants outside constant folder and ports
-	if isInternal && !isPortsDir && !isConstantDir && decl.Tok == token.CONST {
+	// Check constants and enums outside their allowed locations
+	if isInternal && !isPortsDir && decl.Tok == token.CONST {
+		lastType := ""
 		for _, spec := range decl.Specs {
 			if vs, ok := spec.(*ast.ValueSpec); ok {
+				if vs.Type != nil {
+					lastType = formatTypeExpr(vs.Type)
+				} else if len(vs.Values) > 0 {
+					lastType = ""
+				}
+				isEnum := lastType != "" && !strings.Contains(lastType, ".") && !isBuiltinGoType(lastType)
+
 				for _, name := range vs.Names {
 					if name.Name == "_" || name.Name == "CollectionName" {
 						continue
 					}
-					v.addViolation(
-						v.fset.Position(name.Pos()),
-						"Constants",
-						"Constants must be defined in the constant folder ('internal/core/constant/') or typed enums in 'internal/ports/'. Defining local constants in adapter or service files is forbidden.",
-						fmt.Sprintf("Constant '%s' defined in '%s' outside constant folder.", name.Name, filepath.Base(filePath)),
-						fmt.Sprintf("Move constant '%s' to 'internal/core/constant/' (e.g. 'constant.go') or 'internal/ports/enum.go'.", name.Name),
-					)
+
+					if isEnum {
+						// Typed enums MUST be defined in internal/ports/ (never in constant/ or adapters)
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Enums",
+							"All domain enums must be defined in 'internal/ports' and implement 'IsValid() bool'.",
+							fmt.Sprintf("Domain enum '%s' (constant '%s') defined in '%s' outside internal/ports.", lastType, name.Name, filepath.Base(filePath)),
+							fmt.Sprintf("Move enum '%s' and its constants to 'internal/ports/enum.go' and implement 'IsValid() bool'.", lastType),
+						)
+					} else if !isConstantDir {
+						// Non-enum constants must be in the constant folder
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Constants",
+							"Constants must be defined in the constant folder ('internal/core/constant/'). Defining local constants in adapter or service files is forbidden.",
+							fmt.Sprintf("Constant '%s' defined in '%s' outside constant folder.", name.Name, filepath.Base(filePath)),
+							fmt.Sprintf("Move constant '%s' to 'internal/core/constant/' (e.g. 'constant.go').", name.Name),
+						)
+					}
 				}
 			}
 		}
