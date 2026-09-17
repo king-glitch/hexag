@@ -211,21 +211,38 @@ func (v *Verifier) checkFileName(filePath, baseName string, isTestFile bool) {
 		)
 	}
 
-	// Rule: No underscores unless it's a test file (*_test.go)
-	if !isTestFile && strings.Contains(baseName, "_") {
-		kebab := strings.ReplaceAll(baseName, "_", "-")
-		v.addViolation(
-			pos,
-			"File Names",
-			"Single-word lowercase filenames. The directory provides the contextual scope.",
-			fmt.Sprintf("Filename '%s' contains forbidden underscore.", baseName),
-			fmt.Sprintf("Rename to single-word lowercase (e.g. 'service.go', 'handler.go') or sibling kebab-case ('%s').", kebab),
-		)
+	// Rule: No underscores (except the standard Go test suffix '_test.go')
+	var prefix string
+	if isTestFile {
+		prefix = strings.TrimSuffix(baseName, "_test.go")
+		if strings.Contains(prefix, "_") {
+			kebab := strings.ReplaceAll(prefix, "_", "-") + "_test.go"
+			v.addViolation(
+				pos,
+				"File Names",
+				"Single-word lowercase filenames. Sibling disambiguation uses kebab-case.",
+				fmt.Sprintf("Test filename '%s' contains forbidden underscore.", baseName),
+				fmt.Sprintf("Rename to single-word lowercase or sibling kebab-case ('%s').", kebab),
+			)
+		}
+	} else {
+		prefix = strings.TrimSuffix(baseName, ".go")
+		if strings.Contains(baseName, "_") {
+			kebab := strings.ReplaceAll(baseName, "_", "-")
+			v.addViolation(
+				pos,
+				"File Names",
+				"Single-word lowercase filenames. The directory provides the contextual scope.",
+				fmt.Sprintf("Filename '%s' contains forbidden underscore.", baseName),
+				fmt.Sprintf("Rename to single-word lowercase (e.g. 'service.go', 'handler.go') or sibling kebab-case ('%s').", kebab),
+			)
+		}
 	}
 
 	// Rule: Banned kebab-case with role suffixes
+	nameToCheck := prefix + ".go"
 	rolePattern := regexp.MustCompile(`-(service|handler|repository|repo|rules|model|models)\.go$`)
-	if rolePattern.MatchString(baseName) {
+	if rolePattern.MatchString(nameToCheck) {
 		v.addViolation(
 			pos,
 			"File Names",
@@ -236,7 +253,7 @@ func (v *Verifier) checkFileName(filePath, baseName string, isTestFile bool) {
 	}
 
 	// Rule: Banned repo abbreviation in filename
-	if strings.HasSuffix(baseName, "repo.go") {
+	if strings.HasSuffix(nameToCheck, "repo.go") {
 		v.addViolation(
 			pos,
 			"File Names",
@@ -254,6 +271,27 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 	isDatabaseDir := strings.Contains(slashPath, "/adapters/database/")
 	isPortsDomain := strings.HasSuffix(slashPath, "internal/ports/domain.go")
 	isPortsDir := strings.Contains(slashPath, "/internal/ports/") && !strings.Contains(slashPath, "/internal/ports/mocks/")
+
+	importedPackages := make(map[string]bool)
+	for _, imp := range f.Imports {
+		if imp.Name != nil {
+			importedPackages[imp.Name.Name] = true
+		} else {
+			pathVal := strings.Trim(imp.Path.Value, `"`)
+			parts := strings.Split(pathVal, "/")
+			importedPackages[parts[len(parts)-1]] = true
+		}
+	}
+
+	callFunMap := make(map[*ast.SelectorExpr]bool)
+	ast.Inspect(f, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				callFunMap[sel] = true
+			}
+		}
+		return true
+	})
 
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
@@ -287,7 +325,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 			}
 
 		case *ast.TypeSpec:
-			v.checkTypeSpec(filePath, node, isServiceDir, isEndpointDir)
+			v.checkTypeSpec(filePath, node, isServiceDir, isEndpointDir, isTestFile)
 
 		case *ast.FuncDecl:
 			v.checkFuncDecl(filePath, node, isServiceDir, isEndpointDir, isPortsDomain)
@@ -302,7 +340,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 			v.checkSwitchStmt(filePath, node)
 
 		case *ast.SelectorExpr:
-			v.checkSelectorExpr(filePath, node)
+			v.checkSelectorExpr(filePath, node, importedPackages, callFunMap[node])
 
 		case *ast.ValueSpec:
 			v.checkValueSpec(filePath, node)
@@ -312,12 +350,16 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 	})
 }
 
-func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir, isEndpointDir bool) {
+func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir, isEndpointDir, isTestFile bool) {
 	pos := v.fset.Position(ts.Pos())
 	st, isStruct := ts.Type.(*ast.StructType)
 	if !isStruct || st.Fields == nil {
 		return
 	}
+
+	slashPath := filepath.ToSlash(filePath)
+	isInternal := strings.Contains(slashPath, "/internal/") || strings.HasPrefix(slashPath, "internal/")
+	isMock := strings.Contains(slashPath, "/internal/ports/mocks/") || strings.Contains(slashPath, "/ports/mocks/")
 
 	// Check Service struct fields
 	if isServiceDir && ts.Name.Name == "Service" {
@@ -378,6 +420,43 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 				"Service struct holds multiple repository interfaces.",
 				"Remove foreign repositories. Inject sibling service interfaces instead.",
 			)
+		}
+	} else if isInternal && !isMock && !isTestFile {
+		// Check other structs in internal/ (e.g. Deps, Runner, Supervisor, etc.)
+		for _, field := range st.Fields.List {
+			typeStr := formatTypeExpr(field.Type)
+
+			// Service fields in any internal struct must be unexported and use lowercase acronym
+			if isSiblingServiceType(typeStr) {
+				expectedAcronym := computeAcronym(typeStr)
+				for _, name := range field.Names {
+					if unicode.IsUpper(rune(name.Name[0])) || (!isEndpointDir && name.Name != expectedAcronym) {
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Sibling Services",
+							"Service interface fields on structs must be unexported lowercase acronyms (e.g. 'cs ports.CreditService').",
+							fmt.Sprintf("Service field '%s' of type '%s' on struct '%s' must be an unexported lowercase acronym '%s'.", name.Name, typeStr, ts.Name.Name, expectedAcronym),
+							fmt.Sprintf("Rename struct field '%s' to '%s %s'.", name.Name, expectedAcronym, typeStr),
+						)
+					}
+				}
+			}
+
+			// Repository fields in any non-Service internal struct must not be exported
+			if isRepositoryType(typeStr) {
+				for _, name := range field.Names {
+					if unicode.IsUpper(rune(name.Name[0])) {
+						unexportedName := deriveUnexportedName(name.Name)
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Dependencies",
+							"Repository fields on structs must be unexported; direct external access to repository struct fields is forbidden.",
+							fmt.Sprintf("Repository field '%s' on struct '%s' is exported.", name.Name, ts.Name.Name),
+							fmt.Sprintf("Make field unexported (e.g. '%s') and expose via getter method 'Get%s() %s'.", unexportedName, name.Name, typeStr),
+						)
+					}
+				}
+			}
 		}
 	}
 
@@ -460,6 +539,31 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 			}
 			if isRepositoryType(typeStr) {
 				repoCount++
+				for _, name := range param.Names {
+					if name.Name != "repository" {
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Service Struct",
+							"In NewService constructor, the primary repository parameter MUST be named 'repository'.",
+							fmt.Sprintf("Primary repository parameter is named '%s' instead of 'repository'.", name.Name),
+							fmt.Sprintf("Rename parameter '%s' to 'repository %s'.", name.Name, typeStr),
+						)
+					}
+				}
+			}
+			if isSiblingServiceType(typeStr) {
+				expectedAcronym := computeAcronym(typeStr)
+				for _, name := range param.Names {
+					if name.Name != expectedAcronym {
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Sibling Services",
+							"In NewService constructor, sibling service parameters MUST be named by strict lowercase acronyms of their interface type.",
+							fmt.Sprintf("Sibling service parameter '%s' of type '%s' does not use expected acronym '%s'.", name.Name, typeStr, expectedAcronym),
+							fmt.Sprintf("Rename parameter '%s' to '%s %s'.", name.Name, expectedAcronym, typeStr),
+						)
+					}
+				}
 			}
 		}
 		if repoCount > 1 {
@@ -594,6 +698,14 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 				fmt.Sprintf("Abbreviated getter method call '%s()' is forbidden.", name),
 				fmt.Sprintf("Call full method name '%s' instead.", correctGetter),
 			)
+		} else if strings.HasSuffix(name, "Repository") && !strings.HasPrefix(name, "Get") {
+			v.addViolation(
+				pos,
+				"Dependencies",
+				"Interface-based dependencies use full-word getter methods starting with 'Get' (e.g. GetConnectionRepository()).",
+				fmt.Sprintf("Getter method call '%s()' must start with 'Get'.", name),
+				fmt.Sprintf("Call 'Get%s()' instead.", name),
+			)
 		}
 	}
 }
@@ -671,21 +783,49 @@ func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt) {
 	}
 }
 
-func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr) {
-	// Check direct struct field access to *Repo: s.deps.ConnectionRepo
+func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, importedPackages map[string]bool, isCallFun bool) {
+	// Ignore package selectors like repo.SomeFunc, ports.UserRepository, time.Now
+	if ident, ok := sel.X.(*ast.Ident); ok && importedPackages[ident.Name] {
+		return
+	}
+
 	name := sel.Sel.Name
+
+	// 1. Check direct struct field access to *Repo: s.deps.ConnectionRepo or deps.ConnectionRepo
 	if strings.HasSuffix(name, "Repo") && name != "repo" && !strings.HasPrefix(name, "Get") {
-		// Ignore package selectors like repo.SomeFunc
-		if _, isIdent := sel.X.(*ast.Ident); !isIdent {
-			correctGetter := deriveGetterName(name)
-			v.addViolation(
-				v.fset.Position(sel.Pos()),
-				"Dependencies",
-				"Interface-based dependencies use full-word getter methods; direct struct field accesses or abbreviations like '*Repo' are forbidden.",
-				fmt.Sprintf("Direct field access or abbreviated name '%s' is forbidden.", name),
-				fmt.Sprintf("Call getter method '%s' instead of accessing field '%s'.", correctGetter, name),
-			)
-		}
+		correctGetter := deriveGetterName(name)
+		v.addViolation(
+			v.fset.Position(sel.Pos()),
+			"Dependencies",
+			"Interface-based dependencies use full-word getter methods; direct struct field accesses or abbreviations like '*Repo' are forbidden.",
+			fmt.Sprintf("Direct field access or abbreviated name '%s' is forbidden.", name),
+			fmt.Sprintf("Call getter method '%s' instead of accessing field '%s'.", correctGetter, name),
+		)
+		return
+	}
+
+	// 2. Check direct struct field access to *Repository: s.deps.ConnectionRepository or deps.ConnectionRepository
+	if strings.HasSuffix(name, "Repository") && name != "repository" && !strings.HasPrefix(name, "Get") {
+		v.addViolation(
+			v.fset.Position(sel.Pos()),
+			"Dependencies",
+			"Interface-based dependencies use full-word getter methods; direct struct field access to repository fields is forbidden.",
+			fmt.Sprintf("Direct struct field access to repository '%s' is forbidden.", name),
+			fmt.Sprintf("Call getter method 'Get%s()' instead of accessing field '%s'.", name, name),
+		)
+		return
+	}
+
+	// 3. Check direct struct field access to *Service (not called as a function): s.deps.CreditService or deps.AccountService
+	if !isCallFun && strings.HasSuffix(name, "Service") && !strings.HasPrefix(name, "Get") {
+		v.addViolation(
+			v.fset.Position(sel.Pos()),
+			"Sibling Services",
+			"Injected sibling services must be stored in unexported acronym fields (e.g. 's.cs') on service structs or accessed via getter methods (e.g. 'GetCreditService()'); direct struct field access to service full names is forbidden.",
+			fmt.Sprintf("Direct struct field access to service '%s' is forbidden.", name),
+			fmt.Sprintf("Call getter method 'Get%s()' or inject via constructor NewService(...).", name),
+		)
+		return
 	}
 }
 
@@ -714,7 +854,19 @@ func deriveGetterName(name string) string {
 		base := strings.TrimSuffix(name, "Repo")
 		return "Get" + base + "Repository()"
 	}
+	if strings.HasSuffix(name, "Repository") {
+		return "Get" + name + "()"
+	}
 	return "Get" + name + "()"
+}
+
+func deriveUnexportedName(name string) string {
+	if name == "" {
+		return ""
+	}
+	r := []rune(name)
+	r[0] = unicode.ToLower(r[0])
+	return string(r)
 }
 
 func deriveExportedName(name string) string {

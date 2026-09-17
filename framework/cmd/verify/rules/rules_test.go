@@ -299,3 +299,185 @@ type CreateUserRequest struct {
 	assert.Contains(t, violations[0].Description, "oneof=")
 }
 
+func TestVerifier_TestFileNaming(t *testing.T) {
+	tmpDir := t.TempDir()
+	pkgDir := filepath.Join(tmpDir, "internal", "services", "user")
+	require.NoError(t, os.MkdirAll(pkgDir, 0755))
+
+	// 1. Underscore in test file prefix: live_party_test.go -> violation!
+	badTest1 := filepath.Join(pkgDir, "live_party_test.go")
+	require.NoError(t, os.WriteFile(badTest1, []byte("package user\n"), 0644))
+
+	// 2. Banned role suffix in test file: user-service_test.go -> violation!
+	badTest2 := filepath.Join(pkgDir, "user-service_test.go")
+	require.NoError(t, os.WriteFile(badTest2, []byte("package user\n"), 0644))
+
+	// 3. Banned abbreviation in test file: repo_test.go -> violation!
+	badTest3 := filepath.Join(pkgDir, "repo_test.go")
+	require.NoError(t, os.WriteFile(badTest3, []byte("package user\n"), 0644))
+
+	// 4. Allowed kebab-case sibling test file: live-party_test.go -> ok!
+	goodTest1 := filepath.Join(pkgDir, "live-party_test.go")
+	require.NoError(t, os.WriteFile(goodTest1, []byte("package user\n"), 0644))
+
+	// 5. Allowed role test file: service_test.go -> ok!
+	goodTest2 := filepath.Join(pkgDir, "service_test.go")
+	require.NoError(t, os.WriteFile(goodTest2, []byte("package user\n"), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	require.Len(t, violations, 3)
+	descJoined := ""
+	for _, v := range violations {
+		assert.Equal(t, "File Names", v.Category)
+		descJoined += v.Description + " "
+	}
+	assert.Contains(t, descJoined, "live_party_test.go")
+	assert.Contains(t, descJoined, "user-service_test.go")
+	assert.Contains(t, descJoined, "repo_test.go")
+}
+
+func TestVerifier_DepsStructAndFieldAccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	runnerDir := filepath.Join(tmpDir, "internal", "runner")
+	require.NoError(t, os.MkdirAll(runnerDir, 0755))
+
+	content := `package runner
+
+import (
+	"context"
+	"time"
+	"example/internal/ports"
+)
+
+type Deps struct {
+	AccountService       ports.GameAccountService
+	CreditService        ports.CreditService
+	ConnectionRepository ports.BotConnectionRepository
+	RunRepository        ports.BotRunRepository
+	ClientVersion        string
+	HeartbeatEvery       time.Duration
+}
+
+type Runner struct {
+	deps Deps
+}
+
+func (r Runner) Execute(ctx context.Context) error {
+	// Direct field access to repository on s.deps
+	_ = r.deps.ConnectionRepository
+
+	// Direct field access to service on s.deps
+	_ = r.deps.CreditService
+
+	// Direct field access on local deps variable
+	var d Deps
+	_ = d.ConnectionRepository
+
+	// Abbreviated repo field access
+	_ = r.deps.ConnectionRepo
+
+	// Getter method call without Get prefix
+	_ = r.deps.ConnectionRepository()
+
+	return nil
+}
+`
+	filePath := filepath.Join(runnerDir, "runner.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	// Violations expected:
+	// 1. Deps.AccountService exported service field
+	// 2. Deps.CreditService exported service field
+	// 3. Deps.ConnectionRepository exported repo field
+	// 4. Deps.RunRepository exported repo field
+	// 5. r.deps.ConnectionRepository direct field access
+	// 6. r.deps.CreditService direct field access
+	// 7. d.ConnectionRepository direct field access
+	// 8. r.deps.ConnectionRepo abbreviated direct field access
+	// 9. r.deps.ConnectionRepository() missing Get prefix
+	assert.GreaterOrEqual(t, len(violations), 8)
+
+	foundExportedService := false
+	foundExportedRepo := false
+	foundDirectRepoAccess := false
+	foundDirectServiceAccess := false
+	foundMissingGetCall := false
+
+	for _, v := range violations {
+		if v.Category == "Sibling Services" && assert.ObjectsAreEqual(v.Contract, "Service interface fields on structs must be unexported lowercase acronyms (e.g. 'cs ports.CreditService').") {
+			foundExportedService = true
+		}
+		if v.Category == "Dependencies" && assert.ObjectsAreEqual(v.Contract, "Repository fields on structs must be unexported; direct external access to repository struct fields is forbidden.") {
+			foundExportedRepo = true
+		}
+		if v.Category == "Dependencies" && assert.ObjectsAreEqual(v.Contract, "Interface-based dependencies use full-word getter methods; direct struct field access to repository fields is forbidden.") {
+			foundDirectRepoAccess = true
+		}
+		if v.Category == "Sibling Services" && assert.ObjectsAreEqual(v.Contract, "Injected sibling services must be stored in unexported acronym fields (e.g. 's.cs') on service structs or accessed via getter methods (e.g. 'GetCreditService()'); direct struct field access to service full names is forbidden.") {
+			foundDirectServiceAccess = true
+		}
+		if v.Category == "Dependencies" && assert.ObjectsAreEqual(v.Contract, "Interface-based dependencies use full-word getter methods starting with 'Get' (e.g. GetConnectionRepository()).") {
+			foundMissingGetCall = true
+		}
+	}
+
+	assert.True(t, foundExportedService, "should flag exported service field in Deps")
+	assert.True(t, foundExportedRepo, "should flag exported repo field in Deps")
+	assert.True(t, foundDirectRepoAccess, "should flag direct repo field access")
+	assert.True(t, foundDirectServiceAccess, "should flag direct service field access")
+	assert.True(t, foundMissingGetCall, "should flag getter call without Get prefix")
+}
+
+func TestVerifier_ConstructorParameters(t *testing.T) {
+	tmpDir := t.TempDir()
+	serviceDir := filepath.Join(tmpDir, "internal", "services", "user")
+	require.NoError(t, os.MkdirAll(serviceDir, 0755))
+
+	content := `package user
+
+import (
+	"example/internal/ports"
+)
+
+type Service struct {
+	repository ports.UserRepository
+	cs         ports.CreditService
+}
+
+func NewService(
+	ctx ports.ServiceContext,
+	repo ports.UserRepository,
+	creditService ports.CreditService,
+) ports.UserService {
+	return Service{
+		repository: repo,
+		cs:         creditService,
+	}
+}
+`
+	filePath := filepath.Join(serviceDir, "service.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	// Expected:
+	// 1. Parameter 'repo' instead of 'repository'
+	// 2. Parameter 'creditService' instead of 'cs'
+	require.Len(t, violations, 2)
+	assert.Contains(t, violations[0].Description, "repo")
+	assert.Contains(t, violations[1].Description, "creditService")
+}
+
+

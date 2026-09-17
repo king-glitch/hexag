@@ -23,11 +23,15 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 |----------------------|-------------------------------------------------|--------------------------------------------------------------|
 | **File Names**       | `user_service.go`, `create_user.go`             | `service.go`, `user.go` (single-word lowercase)              |
 | **File Names**       | `user-handler.go`, `user_repo.go`               | `handler.go`, `repository.go`                                |
+| **Test Files**       | `live_party_test.go` (underscores in prefix)    | `live-party_test.go` (kebab-case sibling test files)         |
 | **Service Struct**   | `repo ports.UserRepository` or `userRepo ...`   | `repository ports.UserRepository` (exact word: `repository`) |
 | **Sibling Services** | `userService ports.UserService`                 | `us ports.UserService` (strict lowercase acronym)            |
 | **Sibling Services** | `creditService ports.CreditService`             | `cs ports.CreditService`                                     |
+| **Service Fields**   | `AccountService ...` (exported / full name)     | `gas ...` (unexported lowercase acronym across all structs)  |
+| **Repo Fields**      | `ConnectionRepository ...` (exported on struct) | Unexported field or accessed via `GetConnectionRepository()` |
 | **Dependencies**     | `s.deps.GetConnectionRepo()`                    | `s.deps.GetConnectionRepository()` (never abbreviate)        |
 | **Dependencies**     | `s.deps.ConnectionRepo` (struct field access)   | `s.deps.GetConnectionRepository()` (getter method)           |
+| **Dependencies**     | `s.deps.ConnectionRepository` (field access)    | `s.deps.GetConnectionRepository()` (getter method)           |
 | **Tx Runner**        | Storing `txRunner` as a field on service struct | Call `s.GetTransactionRunner().Run(...)` via base service    |
 | **Collections**      | Raw strings: `"users"`, `"user"`                | `ports.UserModel{}.CollectionName()`                         |
 | **Collections**      | Plural names: `"subscriptions"`                 | Singular names: `"subscription"`                             |
@@ -37,7 +41,7 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
 | **Validation**       | Re-checking string length/enums in service      | Let HTTP validator tags handle transport validation          |
 | **Enums**            | Enums without `IsValid() bool`                  | All domain enums must implement `IsValid() bool`             |
-| **Enum Validation**   | `validate:"oneof=active ..."`                   | Use typed enum directly; framework autodetects `IsValid()`   |
+| **Enum Validation**  | `validate:"oneof=active ..."`                   | Use typed enum directly; framework autodetects `IsValid()`   |
 | **Verification**     | Skipping `make verify` check                    | Run `make verify` (must exit code 0 before updating MEMORY)  |
 
 ---
@@ -74,6 +78,8 @@ services -> core + project ports
   - Allowed: `rule-billing.go` vs `rule-trial.go`
   - Banned: `user-service.go`, `create-user-handler.go`, `user_repo.go`
 
+- **Test files:** Follow the same rule with `_test.go` suffix. The prefix before `_test.go` must be single-word lowercase (`service_test.go`, `handler_test.go`) or kebab-case for sibling disambiguation (`live-party_test.go`, `rule-billing_test.go`). Underscores in the prefix (e.g. `live_party_test.go`) are strictly forbidden.
+
 - **Route segments:** kebab-case: `/api/v1/{service}/{resource-or-action}`.
 - **Mongo collections:** Singular snake_case (`user`, `subscription_tier`).
 
@@ -107,8 +113,12 @@ type Service struct {
   - `ports.CreditService` → `cs`
   - `ports.AuthenticationService` → `as`
   - `ports.BotConnectionService` → `bcs`
+  - `ports.GameAccountService` → `gas`
   - `ports.AaBbCcService` (3+ words) → `abcs`
 
+- Across all structs in `internal/` (including dependency structs like `Deps`, runners, supervisors), service fields MUST be unexported lowercase acronyms of their interface type (`cs`, `gas`, `us`). Never export service interface fields (`AccountService`, `CreditService`).
+- Repository fields on dependency structs or other structs must be unexported (e.g. `connectionRepository` or `bcr`). Never access repository fields directly across boundaries; always expose and call getter methods (`GetConnectionRepository()`).
+- In `NewService(...)` constructors, the primary repository parameter must be named `repository`, and sibling service parameters must use lowercase acronyms (`cs`, `us`, `as`).
 - Injected services are never nil. Never write nil checks (`if s.us != nil`). Inject all dependencies unconditionally
   via constructor `NewService(...)`.
 - A service must ONLY hold its own repository (`repository ports.<Entity>Repository`). Never inject another service's
@@ -121,10 +131,11 @@ type Service struct {
 
 ### 2. Dependency Getters
 
-- Dependency getter methods MUST use full words. Shortened names or direct field accesses are strictly forbidden:
+- Dependency getter methods MUST use full words starting with `Get`. Shortened names or direct field accesses are strictly forbidden:
   - `s.deps.GetConnectionRepository()` (REQUIRED)
   - `s.deps.GetConnectionRepo()` (BANNED)
   - `s.deps.ConnectionRepo` (BANNED)
+  - `s.deps.ConnectionRepository` (BANNED)
 
 ### 3. Signatures & Multiline Formatting
 
@@ -318,10 +329,10 @@ Execute this checklist before reporting any task complete:
 
 - [ ] **Verification:** Ran `make verify` (or `hexag verify`) and confirmed zero rule violations (exit code 0).
 - [ ] **File Names:** Every file is single-word lowercase (`service.go`, `handler.go`, `repository.go`), with kebab-case
-  reserved solely for sibling disambiguation.
+  reserved solely for sibling disambiguation (including test files: `live-party_test.go`, never `live_party_test.go`).
 - [ ] **Service Fields:** Primary repository is named `repository`. Sibling services are named using lowercase acronyms
-  (`us`, `cs`, `bcs`).
-- [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations).
+  (`us`, `cs`, `bcs`, `gas`) and are unexported across all structs in `internal/`.
+- [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations or direct field accesses).
 - [ ] **Collections:** All collections use `ports.<Entity>Model{}.CollectionName()` (never hardcoded strings or plural
   names).
 - [ ] **Error Wrapping:** Every error propagation uses `errors.Wrap`; all comparisons use `errors.Is`.
