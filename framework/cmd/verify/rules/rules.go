@@ -705,12 +705,16 @@ func (v *Verifier) checkTimeNow(filePath string, fn *ast.FuncDecl) {
 }
 
 type structFieldInfo struct {
-	name string
-	pos  token.Pos
+	name       string
+	pos        token.Pos
+	exported   bool
+	isFunc     bool // field type is func(...)
+	isLocalPtr bool // field type is *LocalType (same package, no qualifier)
+	typeStr    string
 }
 
-// collectStructFields returns a map of struct type name → exported named fields.
-// Embedded (anonymous) fields are excluded — they have no explicit name.
+// collectStructFields returns a map of struct type name → all named fields
+// (exported and unexported). Embedded/anonymous fields are excluded.
 func collectStructFields(f *ast.File) map[string][]structFieldInfo {
 	result := make(map[string][]structFieldInfo)
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -727,13 +731,25 @@ func collectStructFields(f *ast.File) map[string][]structFieldInfo {
 			if len(field.Names) == 0 {
 				continue // embedded/anonymous field — skip
 			}
+			_, isFunc := field.Type.(*ast.FuncType)
+			isLocalPtr := false
+			if star, ok := field.Type.(*ast.StarExpr); ok {
+				// *LocalType: inner is Ident (same package), not SelectorExpr (other package)
+				_, isLocalPtr = star.X.(*ast.Ident)
+			}
+			typeStr := formatTypeExpr(field.Type)
+			if isFunc {
+				typeStr = "func(...)"
+			}
 			for _, name := range field.Names {
-				if ast.IsExported(name.Name) {
-					result[typeName] = append(result[typeName], structFieldInfo{
-						name: name.Name,
-						pos:  name.Pos(),
-					})
-				}
+				result[typeName] = append(result[typeName], structFieldInfo{
+					name:       name.Name,
+					pos:        name.Pos(),
+					exported:   ast.IsExported(name.Name),
+					isFunc:     isFunc,
+					isLocalPtr: isLocalPtr,
+					typeStr:    typeStr,
+				})
 			}
 		}
 		return true
@@ -774,19 +790,58 @@ func (v *Verifier) checkStructAccessorConsistency(filePath string, structFields 
 			continue // no getters → pure data struct, skip
 		}
 		for _, f := range fields {
-			v.addViolation(
-				v.fset.Position(f.pos),
-				"Struct Accessor Consistency",
-				"Structs with getter methods must not have exported fields; all fields should be unexported and accessed via getters.",
-				fmt.Sprintf(
-					"Exported field '%s' on struct '%s' which has getter methods. Direct field access bypasses the accessor pattern.",
-					f.name, typeName,
-				),
-				fmt.Sprintf(
-					"Make field '%s' unexported and add a 'Get%s()' method if callers need access outside the package.",
-					f.name, f.name,
-				),
-			)
+			pos := v.fset.Position(f.pos)
+
+			// Rule 1: exported fields bypass the accessor pattern
+			if f.exported {
+				v.addViolation(
+					pos,
+					"Struct Accessor Consistency",
+					"Structs with getter methods must not have exported fields; all fields should be unexported and accessed via getters.",
+					fmt.Sprintf(
+						"Exported field '%s' on struct '%s' which has getter methods. Direct field access bypasses the accessor pattern.",
+						f.name, typeName,
+					),
+					fmt.Sprintf(
+						"Make field '%s' unexported and add a 'Get%s()' method if callers need access outside the package.",
+						f.name, f.name,
+					),
+				)
+			}
+
+			// Rule 2: func-type fields violate interface injection
+			if f.isFunc {
+				v.addViolation(
+					pos,
+					"Struct Accessor Consistency",
+					"Function-type fields in dependency structs must be replaced with interface injection; define the behavior as an interface in internal/ports.",
+					fmt.Sprintf(
+						"Field '%s %s' on struct '%s' is a raw function type. Raw function fields cannot be versioned, mocked, or described by a port interface.",
+						f.name, f.typeStr, typeName,
+					),
+					fmt.Sprintf(
+						"Extract '%s' into an interface (e.g. ports.%sHandler) and inject it via the struct's constructor or a getter method.",
+						f.name, f.name,
+					),
+				)
+			}
+
+			// Rule 3: concrete local pointer fields (not interface, not from ports)
+			if f.isLocalPtr {
+				v.addViolation(
+					pos,
+					"Struct Accessor Consistency",
+					"Concrete pointer fields in dependency structs must be replaced with interface injection; define the abstraction in internal/ports.",
+					fmt.Sprintf(
+						"Field '%s %s' on struct '%s' is a concrete pointer to a local type, not an interface. This couples the struct to a concrete implementation.",
+						f.name, f.typeStr, typeName,
+					),
+					fmt.Sprintf(
+						"Define an interface for '%s' in internal/ports and inject the interface instead of the concrete pointer '%s'.",
+						f.typeStr, f.typeStr,
+					),
+				)
+			}
 		}
 	}
 }

@@ -3,6 +3,7 @@ package rules
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -876,4 +877,80 @@ func (s Service) GetSomething() ports.UserRepository { return s.repository }
 		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
 		assert.Empty(t, v)
 	})
+
+	t.Run("func-type field in struct with getters is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package runtime
+
+import (
+	"context"
+	"time"
+	"example/internal/ports"
+)
+
+type Deps struct {
+	gas          ports.GameAccountService
+	OnPartyJoined func(ctx context.Context, at time.Time)
+	LookupPlayer  func(username string) bool
+}
+
+func (d Deps) GetAccountService() ports.GameAccountService { return d.gas }
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
+		require.Len(t, v, 4) // 2 exported + 2 func
+		funcViolations := filterByDescription(v, "raw function type")
+		require.Len(t, funcViolations, 2)
+		assert.Contains(t, funcViolations[0].Description, "OnPartyJoined")
+		assert.Contains(t, funcViolations[1].Description, "LookupPlayer")
+	})
+
+	t.Run("concrete local pointer field in struct with getters is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package runtime
+
+import "example/internal/ports"
+
+type partyHub struct{}
+type Bus struct{}
+
+type Deps struct {
+	gas   ports.GameAccountService
+	party *partyHub
+	bus   *Bus
+}
+
+func (d Deps) GetAccountService() ports.GameAccountService { return d.gas }
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
+		ptrViolations := filterByDescription(v, "concrete pointer")
+		require.Len(t, ptrViolations, 2)
+		assert.Contains(t, ptrViolations[0].Description, "party")
+		assert.Contains(t, ptrViolations[1].Description, "bus")
+	})
+}
+
+func filterByDescription(violations []Violation, substring string) []Violation {
+	var result []Violation
+	for _, v := range violations {
+		if strings.Contains(v.Description, substring) {
+			result = append(result, v)
+		}
+	}
+	return result
 }
