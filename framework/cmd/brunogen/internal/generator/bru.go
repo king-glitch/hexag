@@ -47,7 +47,7 @@ func Write(routes []parser.Route, basePath, outDir, collectionName string) error
 			continue
 		}
 
-		segs := kebabSegments(append(append([]string{}, route.GroupSegments...), route.PathSegments...))
+		segs := routeDirSegments(route, routes)
 		dir := filepath.Join(append([]string{outDir}, segs...)...)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
@@ -345,6 +345,35 @@ func matchPattern(pattern, target string) bool {
 		return true
 	}
 	return false
+}
+
+func routeDirSegments(route parser.Route, allRoutes []parser.Route) []string {
+	full := append(append([]string{}, route.GroupSegments...), route.PathSegments...)
+	if len(full) <= 1 {
+		return kebabSegments(full)
+	}
+
+	last := full[len(full)-1]
+	if strings.HasPrefix(last, ":") {
+		return kebabSegments(full)
+	}
+
+	thisPath := strings.Join(full, "/")
+	hasChildren := false
+	for _, other := range allRoutes {
+		otherFull := append(append([]string{}, other.GroupSegments...), other.PathSegments...)
+		otherPath := strings.Join(otherFull, "/")
+		if len(otherPath) > len(thisPath) && strings.HasPrefix(otherPath, thisPath+"/") {
+			hasChildren = true
+			break
+		}
+	}
+
+	if hasChildren {
+		return kebabSegments(full)
+	}
+
+	return kebabSegments(full[:len(full)-1])
 }
 
 func kebabSegments(segments []string) []string {

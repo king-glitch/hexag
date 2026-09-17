@@ -145,6 +145,18 @@ post {
 			PathSegments:  []string{"active"},
 			HandlerMethod: "HandleGetActive",
 		},
+		{
+			Method:        "POST",
+			GroupSegments: []string{"character"},
+			PathSegments:  []string{"characters", ":character_id", "skills", ":skill_id", "equip"},
+			HandlerMethod: "HandleEquipSkill",
+		},
+		{
+			Method:        "POST",
+			GroupSegments: []string{"character"},
+			PathSegments:  []string{"characters", ":character_id", "skills", ":skill_id", "unequip"},
+			HandlerMethod: "HandleUnequipSkill",
+		},
 	}
 
 	if err := Write(routes, "/api/v1", tmpDir, "test-api"); err != nil {
@@ -173,8 +185,8 @@ post {
 		t.Errorf("stale file handle-old.bru was NOT deleted")
 	}
 
-	// Verify generated file has no handle- prefix: get-active.bru
-	genFile := filepath.Join(tmpDir, "expedition", "entries", "active", "get-active.bru")
+	// Verify generated file is in parent folder: expedition/entries/get-active.bru (not entries/active/...)
+	genFile := filepath.Join(tmpDir, "expedition", "entries", "get-active.bru")
 	genContent, err := os.ReadFile(genFile)
 	if err != nil {
 		t.Fatalf("expected generated file %s, err: %v", genFile, err)
@@ -191,5 +203,23 @@ post {
 	}
 	if strings.Contains(genStr, "auth:bearer") {
 		t.Errorf("expected no per-request auth:bearer block in file, got:\n%s", genStr)
+	}
+
+	// Verify equip and unequip share the same folder under :skill_id
+	skillDir := filepath.Join(tmpDir, "character", "characters", "character_id", "skills", "skill_id")
+	equipFile := filepath.Join(skillDir, "equip-skill.bru")
+	unequipFile := filepath.Join(skillDir, "unequip-skill.bru")
+	if _, err := os.Stat(equipFile); err != nil {
+		t.Errorf("expected equip-skill.bru in %s, err: %v", skillDir, err)
+	}
+	if _, err := os.Stat(unequipFile); err != nil {
+		t.Errorf("expected unequip-skill.bru in %s, err: %v", skillDir, err)
+	}
+	// Verify no redundant equip/ and unequip/ folders exist
+	if _, err := os.Stat(filepath.Join(skillDir, "equip")); !os.IsNotExist(err) {
+		t.Errorf("redundant folder equip/ should not exist under %s", skillDir)
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "unequip")); !os.IsNotExist(err) {
+		t.Errorf("redundant folder unequip/ should not exist under %s", skillDir)
 	}
 }
