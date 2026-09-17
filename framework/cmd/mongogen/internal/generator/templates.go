@@ -107,16 +107,15 @@ package {{.PackageName}}
 import (
 {{range .Imports}}	"{{.}}"
 {{end}})
+{{range .NestedTypes}}
+type {{.TypeName}} struct {
+	{{.FieldPkg}}Field[{{.GoType}}]
+{{range .Fields}}{{template "fieldDef" .}}
+{{end}}}
+{{end}}
+{{define "fieldDef"}}	{{.GoName}} {{if .SubFields}}{{.NestedStructTypeName}}{{else}}{{.FieldPkg}}Field[{{.GoType}}]{{end}}{{end}}
 
-{{define "fieldDef"}}	{{.GoName}} {{if .SubFields}}struct {
-		{{.FieldPkg}}Field[{{.GoType}}]
-{{range .SubFields}}{{template "fieldDef" .}}
-{{end}}	}{{else}}{{.FieldPkg}}Field[{{.GoType}}]{{end}}{{end}}
-
-{{define "fieldVal"}}	{{.GoName}}: {{if .SubFields}}struct {
-		{{.FieldPkg}}Field[{{.GoType}}]
-{{range .SubFields}}{{template "fieldDef" .}}
-{{end}}	}{
+{{define "fieldVal"}}	{{.GoName}}: {{if .SubFields}}{{.NestedStructTypeName}}{
 		Field: {{.FieldPkg}}NewField[{{.GoType}}]("{{.BsonKey}}"),
 {{range .SubFields}}{{template "fieldVal" .}}
 {{end}}	},{{else}}{{.FieldPkg}}NewField[{{.GoType}}]("{{.BsonKey}}"),{{end}}{{end}}
@@ -142,15 +141,15 @@ import (
 {{end}})
 
 ` + FieldTemplateCore + `
-{{define "standaloneFieldDef"}}	{{.GoName}} {{if .SubFields}}struct {
-		Field[{{.GoType}}]
-{{range .SubFields}}{{template "standaloneFieldDef" .}}
-{{end}}	}{{else}}{{.FieldType}}{{end}}{{end}}
+{{range .NestedTypes}}
+type {{.TypeName}} struct {
+	Field[{{.GoType}}]
+{{range .Fields}}{{template "standaloneFieldDef" .}}
+{{end}}}
+{{end}}
+{{define "standaloneFieldDef"}}	{{.GoName}} {{if .SubFields}}{{.NestedStructTypeName}}{{else}}{{.FieldType}}{{end}}{{end}}
 
-{{define "standaloneFieldVal"}}	{{.GoName}}: {{if .SubFields}}struct {
-		Field[{{.GoType}}]
-{{range .SubFields}}{{template "standaloneFieldDef" .}}
-{{end}}	}{
+{{define "standaloneFieldVal"}}	{{.GoName}}: {{if .SubFields}}{{.NestedStructTypeName}}{
 		Field: Field[{{.GoType}}]{key: "{{.BsonKey}}"},
 {{range .SubFields}}{{template "standaloneFieldVal" .}}
 {{end}}	},{{else}}{{.FieldType}}{key: "{{.BsonKey}}"},{{end}}{{end}}
@@ -166,4 +165,5 @@ var {{.StructName}} = {{.StructName}}Type{
 var {{.VarName}} = {{.StructName}}
 {{end}}
 `
+
 

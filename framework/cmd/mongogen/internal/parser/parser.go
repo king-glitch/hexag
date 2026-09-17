@@ -25,8 +25,9 @@ type FieldMeta struct {
 	GoName    string
 	GoType    string
 	BsonKey   string
-	FieldType string
-	SubFields []FieldMeta
+	FieldType            string
+	SubFields            []FieldMeta
+	NestedStructTypeName string
 	// FieldPkg is the qualifier prefix for Field[T]/NewField (e.g. "mongo."
 	// in shared mode, "" in standalone mode). Set by the generator after
 	// parsing, uniformly across the whole field tree, since text/template's
@@ -251,13 +252,23 @@ func (p *Parser) extractFields(
 				}
 			}
 
+			nestedStructTypeName := ""
+			if len(subFields) > 0 {
+				if nestedTypeName != "" {
+					nestedStructTypeName = nestedTypeName + "Type"
+				} else {
+					nestedStructTypeName = goName + "Type"
+				}
+			}
+
 			fields = append(
 				fields, FieldMeta{
-					GoName:    goName,
-					GoType:    goType,
-					BsonKey:   fullBsonKey,
-					FieldType: fieldType,
-					SubFields: subFields,
+					GoName:               goName,
+					GoType:               goType,
+					BsonKey:              fullBsonKey,
+					FieldType:            fieldType,
+					SubFields:            subFields,
+					NestedStructTypeName: nestedStructTypeName,
 				},
 			)
 		}

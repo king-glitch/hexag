@@ -43,12 +43,21 @@ func NewGenerator() (*Generator, error) {
 	}, nil
 }
 
+type NestedTypeViewData struct {
+	TypeName  string
+	GoType    string
+	FieldPkg  string
+	FieldType string
+	Fields    []parser.FieldMeta
+}
+
 type ModelViewData struct {
 	PackageName string
 	StructName  string
 	VarName     string
 	HasAlias    bool
 	Imports     []string
+	NestedTypes []NestedTypeViewData
 	Fields      []parser.FieldMeta
 	// FieldPkg is the qualifier prefix for Field[T]/NewField, e.g. "mongo."
 	// in shared mode or "" in standalone mode (Field[T] is embedded).
@@ -109,13 +118,17 @@ func (g *Generator) GenerateModel(
 
 	hasAlias := meta.VarName != meta.StructName
 
+	fieldsWithPkg := withFieldPkg(meta.Fields, fieldPkg)
+	nestedTypes := collectNestedTypes(fieldsWithPkg, fieldPkg, make(map[string]bool))
+
 	data := ModelViewData{
 		PackageName: packageName,
 		StructName:  meta.StructName,
 		VarName:     meta.VarName,
 		HasAlias:    hasAlias,
 		Imports:     imports,
-		Fields:      withFieldPkg(meta.Fields, fieldPkg),
+		NestedTypes: nestedTypes,
+		Fields:      fieldsWithPkg,
 		FieldPkg:    fieldPkg,
 	}
 
@@ -155,3 +168,27 @@ func withFieldPkg(fields []parser.FieldMeta, pkg string) []parser.FieldMeta {
 
 	return out
 }
+
+func collectNestedTypes(fields []parser.FieldMeta, fieldPkg string, seen map[string]bool) []NestedTypeViewData {
+	var out []NestedTypeViewData
+	for _, f := range fields {
+		if len(f.SubFields) > 0 {
+			children := collectNestedTypes(f.SubFields, fieldPkg, seen)
+			out = append(out, children...)
+
+			if !seen[f.NestedStructTypeName] {
+				seen[f.NestedStructTypeName] = true
+				out = append(out, NestedTypeViewData{
+					TypeName:  f.NestedStructTypeName,
+					GoType:    f.GoType,
+					FieldPkg:  fieldPkg,
+					FieldType: f.FieldType,
+					Fields:    f.SubFields,
+				})
+			}
+		}
+	}
+
+	return out
+}
+
