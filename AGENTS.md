@@ -9,7 +9,7 @@
 - Framework: `github.com/king-glitch/hexag`.
 - Root `CLAUDE.md` imports this file; never remove/break that link.
 - Run `make verify` before updating `MEMORY.md`. If it fails, fix the code immediately.
-- After edits, commit changes and tag a new release incrementing the patch version by 1 (e.g. v0.0.1 -> v0.0.2 or v0.0.x -> v0.0.x+1) for Go package consumers; push commit and tag.
+- After edits, commit changes, tag a new release incrementing the patch version by 1 (e.g. v0.0.1 -> v0.0.2 or v0.0.x -> v0.0.x+1), push commit and tag, create the GitHub release, and warm the Go proxy via 'GOPROXY=https://proxy.golang.org go list -m github.com/king-glitch/hexag@<version>'.
 - Check `MEMORY.md` to resume where left off; update `MEMORY.md` after completing each step in `docs/plans/` so next agent can seamlessly continue.
 - If repository state or user instructions conflict with this file, stop and ask.
 
@@ -194,7 +194,7 @@ All domain models live in `internal/ports/domain.go` and must:
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
 - Call domain functions directly; never hide domain/framework functions behind trivial service wrappers.
 - Define typed enums/constants in `internal/ports`; never use raw strings in domain or service code.
-- All typed domain enums defined in `internal/ports` MUST implement `IsValid() bool` (implementing `hexports.Validatable`):
+- All typed domain enums defined in `internal/ports` MUST implement `IsValid() bool` (implementing `hexports.Validatable`) covering all declared constants. The verifier mechanically checks that no declared constants are missed:
 
 ```go
 type PlanType string
@@ -328,6 +328,6 @@ Execute this checklist before reporting any task complete:
 - [ ] **Transactions:** Multi-write mutations run via `s.GetTransactionRunner().Run` using the inner callback context.
 - [ ] **Generators:** Ran `make generate` and `make bruno` if domain models or HTTP routes were modified.
 - [ ] **Hand-Edits:** Verified zero manual modifications to generated Mongo models or Bruno documents.
-- [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`); zero hardcoded `oneof=` validator tags.
+- [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`) covering ALL declared constants; zero hardcoded `oneof=` validator tags.
 - [ ] **Memory:** Updated `MEMORY.md` with step progress, state, and next actions.
-- [ ] **Release:** Commit completed task files and tag release with bumped patch version (e.g. v0.0.x -> v0.0.x+1); push commits and tags so Go package consumers can immediately update.
+- [ ] **Release:** Commit completed task files, tag release with bumped patch version (e.g. v0.0.x -> v0.0.x+1), push commit/tag, create GitHub release, and warm Go proxy (`GOPROXY=https://proxy.golang.org go list -m github.com/king-glitch/hexag@<version>`) so consumers can immediately update without proxy cache delays.

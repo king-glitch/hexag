@@ -246,6 +246,7 @@ type Role string
 const (
 	RoleAdmin Role = "admin"
 	RoleUser  Role = "user"
+	RoleGuest Role = "guest"
 )
 
 func (r Role) IsValid() bool {
@@ -261,11 +262,13 @@ func (r Role) IsValid() bool {
 
 	violations := verifier.Violations()
 	// Expected:
-	// Status does NOT implement IsValid() bool -> violation!
-	// Role implements IsValid() bool -> OK!
-	require.Len(t, violations, 1)
+	// 1. Status does NOT implement IsValid() bool -> violation!
+	// 2. Role implements IsValid() bool, but misses RoleGuest -> violation!
+	require.Len(t, violations, 2)
 	assert.Equal(t, "Enums", violations[0].Category)
 	assert.Contains(t, violations[0].Description, "Status")
+	assert.Equal(t, "Enums", violations[1].Category)
+	assert.Contains(t, violations[1].Description, "RoleGuest")
 }
 
 func TestVerifier_OneofValidation(t *testing.T) {

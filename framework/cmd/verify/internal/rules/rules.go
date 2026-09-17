@@ -49,20 +49,29 @@ func (v Violation) Format(index, total int) string {
 	return sb.String()
 }
 
+type enumConstant struct {
+	name string
+	pos  token.Position
+}
+
 type Verifier struct {
-	fset              *token.FileSet
-	violations        []Violation
-	fileCount         int
-	portsEnumTypes    map[string]token.Position
-	portsEnumMethods  map[string]bool
-	invariantsChecked bool
+	fset                   *token.FileSet
+	violations             []Violation
+	fileCount              int
+	portsEnumTypes         map[string]token.Position
+	portsEnumMethods       map[string]bool
+	portsEnumConstants     map[string][]enumConstant
+	portsEnumHandledValues map[string]map[string]bool
+	invariantsChecked      bool
 }
 
 func NewVerifier() *Verifier {
 	return &Verifier{
-		fset:             token.NewFileSet(),
-		portsEnumTypes:   make(map[string]token.Position),
-		portsEnumMethods: make(map[string]bool),
+		fset:                   token.NewFileSet(),
+		portsEnumTypes:         make(map[string]token.Position),
+		portsEnumMethods:       make(map[string]bool),
+		portsEnumConstants:     make(map[string][]enumConstant),
+		portsEnumHandledValues: make(map[string]map[string]bool),
 	}
 }
 
@@ -259,10 +268,18 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 					if vs, ok := spec.(*ast.ValueSpec); ok {
 						if vs.Type != nil {
 							lastType = formatTypeExpr(vs.Type)
+						} else if len(vs.Values) > 0 {
+							lastType = ""
 						}
 						if lastType != "" && !strings.Contains(lastType, ".") && !isBuiltinGoType(lastType) {
 							if _, exists := v.portsEnumTypes[lastType]; !exists {
 								v.portsEnumTypes[lastType] = v.fset.Position(vs.Pos())
+							}
+							for _, name := range vs.Names {
+								v.portsEnumConstants[lastType] = append(v.portsEnumConstants[lastType], enumConstant{
+									name: name.Name,
+									pos:  v.fset.Position(name.Pos()),
+								})
 							}
 						}
 					}
@@ -411,6 +428,17 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 			if fn.Type.Results != nil && len(fn.Type.Results.List) == 1 {
 				if formatTypeExpr(fn.Type.Results.List[0].Type) == "bool" {
 					v.portsEnumMethods[recvType] = true
+					if fn.Body != nil {
+						if v.portsEnumHandledValues[recvType] == nil {
+							v.portsEnumHandledValues[recvType] = make(map[string]bool)
+						}
+						ast.Inspect(fn.Body, func(n ast.Node) bool {
+							if id, ok := n.(*ast.Ident); ok {
+								v.portsEnumHandledValues[recvType][id.Name] = true
+							}
+							return true
+						})
+					}
 				}
 			}
 		}
@@ -854,6 +882,20 @@ func (v *Verifier) checkFinalInvariants() {
 				fmt.Sprintf("Domain enum type '%s' does not implement 'IsValid() bool'.", typeName),
 				fmt.Sprintf("Implement 'func (e %s) IsValid() bool' with a switch statement covering all declared %s constants.", typeName, typeName),
 			)
+			continue
+		}
+
+		handled := v.portsEnumHandledValues[typeName]
+		for _, constant := range v.portsEnumConstants[typeName] {
+			if !handled[constant.name] {
+				v.addViolation(
+					constant.pos,
+					"Enums",
+					fmt.Sprintf("The 'IsValid() bool' method on domain enum '%s' must handle all declared constants.", typeName),
+					fmt.Sprintf("Enum constant '%s' of type '%s' is not checked in 'IsValid()'.", constant.name, typeName),
+					fmt.Sprintf("Add '%s' to the switch statement in 'func (e %s) IsValid() bool'.", constant.name, typeName),
+				)
+			}
 		}
 	}
 }

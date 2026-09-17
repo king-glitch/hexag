@@ -194,7 +194,7 @@ All domain models live in `internal/ports/domain.go` and must:
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
 - Call domain functions directly; never hide domain/framework functions behind trivial service wrappers.
 - Define typed enums/constants in `internal/ports`; never use raw strings in domain or service code.
-- All typed domain enums defined in `internal/ports` MUST implement `IsValid() bool` (implementing `hexports.Validatable`):
+- All typed domain enums defined in `internal/ports` MUST implement `IsValid() bool` (implementing `hexports.Validatable`) covering all declared constants. The verifier mechanically checks that no declared constants are missed:
 
 ```go
 type PlanType string
@@ -328,6 +328,6 @@ Execute this checklist before reporting any task complete:
 - [ ] **Transactions:** Multi-write mutations run via `s.GetTransactionRunner().Run` using the inner callback context.
 - [ ] **Generators:** Ran `make generate` and `make bruno` if domain models or HTTP routes were modified.
 - [ ] **Hand-Edits:** Verified zero manual modifications to generated Mongo models or Bruno documents.
-- [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`); zero hardcoded `oneof=` validator tags.
+- [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`) covering ALL declared constants; zero hardcoded `oneof=` validator tags.
 - [ ] **Memory:** Updated `MEMORY.md` with step progress, state, and next actions.
 - [ ] **Git:** Staged all task files; did not commit.
