@@ -770,3 +770,110 @@ func filterByCategory(violations []Violation, category string) []Violation {
 	}
 	return result
 }
+
+func TestVerifier_StructAccessorConsistency(t *testing.T) {
+	t.Run("struct with getters and exported fields is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package runtime
+
+import "example/internal/ports"
+
+type Deps struct {
+	gas         ports.GameAccountService
+	LoginClient ports.GameLoginClient
+	ClientVersion string
+}
+
+func (d Deps) GetAccountService() ports.GameAccountService { return d.gas }
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
+		require.Len(t, v, 2)
+		assert.Contains(t, v[0].Description, "LoginClient")
+		assert.Contains(t, v[1].Description, "ClientVersion")
+	})
+
+	t.Run("struct with getters and all unexported fields is OK", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package runtime
+
+import "example/internal/ports"
+
+type Deps struct {
+	gas ports.GameAccountService
+	cs  ports.CreditService
+}
+
+func (d Deps) GetAccountService() ports.GameAccountService { return d.gas }
+func (d Deps) GetCreditService() ports.CreditService       { return d.cs }
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
+		assert.Empty(t, v)
+	})
+
+	t.Run("struct with no getters and exported fields is OK (pure data struct)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime", "core")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package core
+
+type HuntArgs struct {
+	Map     string
+	Monster string
+	Item    string
+	Quantity int
+}
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "combat.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
+		assert.Empty(t, v)
+	})
+
+	t.Run("embedded fields are not flagged", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "services", "user")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package user
+
+import (
+	"example/internal/ports"
+	"example/framework/api/service/base"
+)
+
+type Service struct {
+	base.ServiceBase
+	repository ports.UserRepository
+}
+
+func (s Service) GetSomething() ports.UserRepository { return s.repository }
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "service.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Struct Accessor Consistency")
+		assert.Empty(t, v)
+	})
+}

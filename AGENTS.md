@@ -40,6 +40,7 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **Errors**           | Discarding errors: `_ = dep.Method(...)`, `_ = err` | Handle or return every error wrapped with `errors.Wrap`      |
 | **Sentinels**        | `if err == ports.ErrNotFound`                   | `if errors.Is(err, ports.ErrNotFound)`                       |
 | **Time Handling**    | Calling `time.Now()` in functions that receive `time.Time`; multiple `time.Now()` in same function | Capture once at entry (`at := time.Now()` or `at := hextransport.RequestTime(c)`) and pass `at` through |
+| **Struct Fields**    | Exported fields on structs that have `Get...()` getter methods | Make all fields unexported; add `Get<Field>()` for each field that needs external access |
 | **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
 | **Validation**       | Re-checking string length/enums in service      | Let HTTP validator tags handle transport validation          |
 | **Enums**            | Enums without `IsValid() bool`                  | All domain enums must implement `IsValid() bool`             |

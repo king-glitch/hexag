@@ -336,6 +336,13 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 
 		return true
 	})
+
+	// Struct accessor consistency: structs with Get...() methods must not have exported fields.
+	if isInternal && !isPortsDir {
+		structFields := collectStructFields(f)
+		structGetters := collectGetterMethods(f)
+		v.checkStructAccessorConsistency(filePath, structFields, structGetters)
+	}
 }
 
 func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir, isEndpointDir bool) {
@@ -696,6 +703,94 @@ func (v *Verifier) checkTimeNow(filePath string, fn *ast.FuncDecl) {
 		}
 	}
 }
+
+type structFieldInfo struct {
+	name string
+	pos  token.Pos
+}
+
+// collectStructFields returns a map of struct type name → exported named fields.
+// Embedded (anonymous) fields are excluded — they have no explicit name.
+func collectStructFields(f *ast.File) map[string][]structFieldInfo {
+	result := make(map[string][]structFieldInfo)
+	ast.Inspect(f, func(n ast.Node) bool {
+		ts, ok := n.(*ast.TypeSpec)
+		if !ok {
+			return true
+		}
+		st, ok := ts.Type.(*ast.StructType)
+		if !ok || st.Fields == nil {
+			return true
+		}
+		typeName := ts.Name.Name
+		for _, field := range st.Fields.List {
+			if len(field.Names) == 0 {
+				continue // embedded/anonymous field — skip
+			}
+			for _, name := range field.Names {
+				if ast.IsExported(name.Name) {
+					result[typeName] = append(result[typeName], structFieldInfo{
+						name: name.Name,
+						pos:  name.Pos(),
+					})
+				}
+			}
+		}
+		return true
+	})
+	return result
+}
+
+// collectGetterMethods returns a set of struct type names that have at least one
+// Get...() method with a return value and no parameters (beyond the receiver).
+func collectGetterMethods(f *ast.File) map[string]bool {
+	result := make(map[string]bool)
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 {
+			return true
+		}
+		name := fn.Name.Name
+		if !strings.HasPrefix(name, "Get") || name == "Get" {
+			return true
+		}
+		if fn.Type.Results == nil || len(fn.Type.Results.List) == 0 {
+			return true
+		}
+		if fn.Type.Params != nil && len(fn.Type.Params.List) > 0 {
+			return true
+		}
+		recvType := formatTypeExpr(fn.Recv.List[0].Type)
+		recvType = strings.TrimPrefix(recvType, "*")
+		result[recvType] = true
+		return true
+	})
+	return result
+}
+
+func (v *Verifier) checkStructAccessorConsistency(filePath string, structFields map[string][]structFieldInfo, structGetters map[string]bool) {
+	for typeName, fields := range structFields {
+		if !structGetters[typeName] {
+			continue // no getters → pure data struct, skip
+		}
+		for _, f := range fields {
+			v.addViolation(
+				v.fset.Position(f.pos),
+				"Struct Accessor Consistency",
+				"Structs with getter methods must not have exported fields; all fields should be unexported and accessed via getters.",
+				fmt.Sprintf(
+					"Exported field '%s' on struct '%s' which has getter methods. Direct field access bypasses the accessor pattern.",
+					f.name, typeName,
+				),
+				fmt.Sprintf(
+					"Make field '%s' unexported and add a 'Get%s()' method if callers need access outside the package.",
+					f.name, f.name,
+				),
+			)
+		}
+	}
+}
+
 
 func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isInternal, isServiceDir, isEndpointDir, isDatabaseDir bool, importedPackages map[string]bool) {
 	pos := v.fset.Position(call.Pos())

@@ -20,6 +20,7 @@ Hand-off state for the next agent. Rules: `AGENTS.md`.
 - Mechanically enforced zero-tolerance ban on error suppression: discarding dependency method returns (`_ = dep.Method(...)`, `_, _ = dep.Method(...)`) or discarding errors (`_ = err`, `_ = serr`) is forbidden.
 - Mechanically enforced zero-tolerance ban on nil checks across injected dependencies in `internal/`: `if s.us != nil`, `if t.brr != nil`, etc. are forbidden as dependencies must be unconditionally injected via constructors.
 - Dynamic per-function `time.Now()` check (no directory flags): if function receives `time.Time` param, any `time.Now()` is a violation; if no time param, multiple `time.Now()` calls are a violation (capture once as `at := time.Now()` and reuse).
+- Struct accessor consistency (v0.0.30): if a struct has any `Get...()` method (no params, returns value), ALL its fields must be unexported. Pure data structs (no getters) are unaffected. Embedded/anonymous fields excluded. Catches `runtime.Deps` pattern with 10 exported fields + getter methods.
 - Supported disambiguated service acronyms: valid unexported 2-4 lowercase letter acronyms that are subsequences of the service interface name ending in 's' (e.g. `aus` for `ports.AuditService` when `as` is taken by `ports.AuthenticationService`, `sgs`/`sugs` for `ports.SuggestionService`, `bos` for `ports.BountyService`, `ss` for `ports.BotScriptService`) are accepted.
 
 ## Hard-won facts
