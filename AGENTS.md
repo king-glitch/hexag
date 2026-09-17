@@ -84,7 +84,7 @@ All domain models live in `internal/ports/domain.go` and must:
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
 - Call domain functions directly; never hide domain/framework functions behind trivial service wrappers.
 - Define typed enums/constants in `internal/ports`; never use raw strings in domain/service code.
-- HTTP DTOs may use validated `string` with `oneof=...`; convert to typed enums before domain/service behavior.
+- HTTP request DTOs should use typed domain enums and `time.Time` directly when supported by binding; no manual string-to-enum casting or date parsing in handlers.
 
 ## Persistence/Security
 
@@ -129,6 +129,9 @@ All domain models live in `internal/ports/domain.go` and must:
 - A service must ONLY hold its own repository (`repository ports.<Entity>Repository`).
 - A service must NEVER inject another service's repository directly. Sibling domains must be accessed strictly through their service interface.
 - Injected sibling services use lowercase acronym field names: `us ports.UserService`, `cs ports.CreditService`, `abcs ports.AaBbCcService` (3+ words).
+- Injected service interfaces are NEVER nil. If a service needs a dependency, it must be required in the constructor and stored on the struct. Never write nil guards like `if s.us != nil`.
+- Cyclic dependencies between services are strictly prohibited. Never use setter injection workarounds like `WithAuthenticationService(...)` or `WithBotConnectionService(...)`. If two services need shared logic or state verification (e.g. suspension/ban checks, status lookups), extract that capability into a separate domain service (e.g. `BanService`) or orchestrator and inject it into both.
+- Services enforce domain invariants and state transitions only; never duplicate input validations already enforced by HTTP request binding tags (`required`, formats, min/max, enums).
 - Bad service struct:
 ```go
 type Service struct {
@@ -159,6 +162,7 @@ type Service struct {
   framework responses; no business rules.
 - Capture request time once via `at := hextransport.RequestTime(c)` and pass `at` through to services; never invoke `time.Now()` multiple times.
 - Every request input (body or query params) uses a dedicated named request DTO: `type <MethodName>Request struct`.
+- Request DTOs may use `time.Time` and typed domain enums directly; never manually parse date/time strings (`time.Parse`) or cast raw strings in handlers when binding handles them directly.
 - Bind request DTOs via `hextransport.Bind(c, &req)` or `hextransport.BindQuery(c, &req)`; never manually parse query/body parameters with ad-hoc `c.Query()` or `strconv` calls.
 - Parse pagination with `hextransport.ParsePaginationParamsContext(c, [defaultAmount])`.
 - Every success with data uses a dedicated named response DTO: `type <MethodName>Response struct`.
@@ -234,6 +238,10 @@ hexhttpx.New(
 - Verify every error hop wraps and every sentinel comparison uses `errors.Is`.
 - Verify multi-writes use `s.GetContext().GetTransactionRunner().Run` and callback `ctx`.
 - Verify services hold only their own `repository` and inject sibling services via acronyms (`us`, `cs`, `abcs`), never foreign repositories.
+- Verify all injected services are unconditionally passed to constructors and never nil-checked (`if s.svc != nil`).
+- Verify no cyclic dependencies between services and no setter injection workarounds (`With...`).
+- Verify services do not duplicate input validation already handled by HTTP transport tags.
+- Verify request DTOs bind `time.Time` and typed enums directly without manual parsing in handlers.
 - Verify dependencies use full-word getter methods (`GetConnectionRepository()`), never bare fields or shortened getter names.
 - Verify collection names use `ports.<Entity>Model{}.CollectionName()` and are never hardcoded strings.
 - Verify handlers/repositories contain no business logic.

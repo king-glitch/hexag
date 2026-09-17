@@ -5,7 +5,7 @@
 - Run `/ponytail ultra` before work; keep it active.
 - Be terse and implementation-focused.
 - Use installed skills/MCP before improvising.
-- Go 1.26+; module `{{MODULE_PATH}}`; strict hexagonal architecture across two Go modules.
+- Go 1.27+; module `{{MODULE_PATH}}`; strict hexagonal architecture across two Go modules.
 - Framework: `github.com/king-glitch/hexag`; use a temporary local `go.mod replace` until published.
 - Root `CLAUDE.md` imports this file; never remove/break that link.
 - Never commit. Stage completed task files; user controls commit scope/message.
@@ -87,7 +87,7 @@ All domain models live in `internal/ports/domain.go` and must:
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
 - Call domain functions directly; never hide domain/framework functions behind trivial service wrappers.
 - Define typed enums/constants in `internal/ports`; never use raw strings in domain/service code.
-- HTTP DTOs may use validated `string` with `oneof=...`; convert to typed enums before domain/service behavior.
+- Request DTOs may use typed enums and `time.Time` directly with validation tags; never manually parse time or cast raw strings in handlers when binding handles them directly.
 
 ## Persistence/Security
 
@@ -131,7 +131,10 @@ All domain models live in `internal/ports/domain.go` and must:
 - Services depend only on ports, core rules, and direct framework abstractions.
 - A service must ONLY hold its own repository (`repository ports.<Entity>Repository`).
 - A service must NEVER inject another service's repository directly. Sibling domains must be accessed strictly through their service interface.
-- Injected sibling services use lowercase acronym field names: `us ports.UserService`, `cs ports.CreditService`, `abcs ports.AaBbCcService` (3+ words).
+- Injected sibling services use lowercase acronym field names: `us ports.UserService`, `cs ports.CreditService`, `as ports.AuthenticationService`, `bcs ports.BotConnectionService`, `abcs ports.AaBbCcService` (3+ words).
+- Injected service interfaces are never nil. Never write `if s.us != nil` or nil guards. If a service needs a dependency, inject it unconditionally via constructor `NewService(...)`.
+- Never use cyclic service dependencies or setter injection workarounds like `func (s Service) WithAuthenticationService(...) Service`. All dependencies are immutable and injected once via constructor. If two services have circular needs or shared cross-cutting concerns (e.g. bans, suspensions, status checks), extract that functionality into a separate, dedicated service (e.g. `BanService`, `CoordinationService`) that both can depend on or that orchestrates the flow.
+- Service methods must not re-validate input already validated by HTTP transport (e.g. required checks, format, string length, enum validity). HTTP validates transport input; services enforce only domain invariants and business state transitions (unless invoked from non-HTTP entry points like workers or queues).
 - Bad service struct:
 ```go
 type Service struct {
@@ -162,6 +165,7 @@ type Service struct {
   framework responses; no business rules.
 - Capture request time once via `at := hextransport.RequestTime(c)` and pass `at` through to services; never invoke `time.Now()` multiple times.
 - Every request input (body or query params) uses a dedicated named request DTO: `type <MethodName>Request struct`.
+- Request DTOs may use `time.Time` and typed domain enums directly; never manually parse date/time strings (`time.Parse`) or cast raw strings in handlers when binding handles them directly.
 - Bind request DTOs via `hextransport.Bind(c, &req)` or `hextransport.BindQuery(c, &req)`; never manually parse query/body parameters with ad-hoc `c.Query()` or `strconv` calls.
 - Parse pagination with `hextransport.ParsePaginationParamsContext(c, [defaultAmount])`.
 - Every success with data uses a dedicated named response DTO: `type <MethodName>Response struct`.
@@ -257,6 +261,10 @@ ServiceContext -> DB -> adapters -> services -> hexhttpx.New
 - Verify every error hop wraps and every sentinel comparison uses `errors.Is`.
 - Verify multi-writes use `s.GetContext().GetTransactionRunner().Run` and callback `ctx`.
 - Verify services hold only their own `repository` and inject sibling services via acronyms (`us`, `cs`, `abcs`), never foreign repositories.
+- Verify all injected services are unconditionally passed to constructors and never nil-checked (`if s.svc != nil`).
+- Verify no cyclic dependencies between services and no setter injection workarounds (`With...`).
+- Verify services do not duplicate input validation already handled by HTTP transport tags.
+- Verify request DTOs bind `time.Time` and typed enums directly without manual parsing in handlers.
 - Verify dependencies use full-word getter methods (`GetConnectionRepository()`), never bare fields or shortened getter names.
 - Verify collection names use `ports.<Entity>Model{}.CollectionName()` and are never hardcoded strings.
 - Verify handlers/repositories contain no business logic.
