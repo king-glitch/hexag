@@ -22,6 +22,7 @@ Hand-off state for the next agent. Rules: `AGENTS.md`.
 - Dynamic per-function `time.Now()` check (no directory flags): if function receives `time.Time` param, any `time.Now()` is a violation; if no time param, multiple `time.Now()` calls are a violation (capture once as `at := time.Now()` and reuse).
 - Struct accessor consistency (v0.0.30): if a struct has any `Get...()` method (no params, returns value), ALL its fields must be unexported. Pure data structs (no getters) are unaffected. Embedded/anonymous fields excluded. Catches `runtime.Deps` pattern with 10 exported fields + getter methods.
 - Supported disambiguated service acronyms: valid unexported 2-4 lowercase letter acronyms that are subsequences of the service interface name ending in 's' (e.g. `aus` for `ports.AuditService` when `as` is taken by `ports.AuthenticationService`, `sgs`/`sugs` for `ports.SuggestionService`, `bos` for `ports.BountyService`, `ss` for `ports.BotScriptService`) are accepted.
+- Constants & Sentinels location (v0.0.32): All constants must be defined in the constant folder ('internal/core/constant/') or typed enums in 'internal/ports/'. Defining local constants (e.g. const loadTimeout = ...) in adapter or service files is forbidden. Sentinel errors must be defined globally in 'internal/ports/errors.go'; defining local error variables (e.g. var errNeedsRelogin = errors.New(...)) outside ports is forbidden.
 
 ## Hard-won facts
 

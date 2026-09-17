@@ -38,7 +38,8 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **Collections**      | Plural names: `"subscriptions"`                 | Singular names: `"subscription"`                             |
 | **Errors**           | Naked returns: `return err`                     | `return errors.Wrap(err, "context message")`                 |
 | **Errors**           | Discarding errors: `_ = dep.Method(...)`, `_ = err` | Handle or return every error wrapped with `errors.Wrap`      |
-| **Sentinels**        | `if err == ports.ErrNotFound`                   | `if errors.Is(err, ports.ErrNotFound)`                       |
+| **Sentinels**        | `if err == ports.ErrNotFound` or defining local error `var errX = errors.New(...)` | Sentinel comparisons via `errors.Is(err, ports.ErrX)`; all sentinels defined in `internal/ports/errors.go` |
+| **Constants**        | Defining constants in adapter or service files (`const loadTimeout = ...`) | Define constants in `internal/core/constant/` or typed enums in `internal/ports/` |
 | **Time Handling**    | Calling `time.Now()` in functions that receive `time.Time`; multiple `time.Now()` in same function | Capture once at entry (`at := time.Now()` or `at := hextransport.RequestTime(c)`) and pass `at` through |
 | **Struct Fields**    | Exported fields on structs that have `Get...()` getter methods | Make all fields unexported; add `Get<Field>()` for each field that needs external access |
 | **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
@@ -342,5 +343,6 @@ Execute this checklist before reporting any task complete:
 - [ ] **Generators:** Ran `make generate` and `make bruno` if domain models or HTTP routes were modified.
 - [ ] **Hand-Edits:** Verified zero manual modifications to generated Mongo models or Bruno documents.
 - [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`) covering ALL declared constants; zero hardcoded `oneof=` validator tags.
+- [ ] **Constants & Sentinels:** All constants live in 'internal/core/constant/' or 'internal/ports/'; all sentinels live in 'internal/ports/errors.go' (zero local const or var err... = errors.New(...) in adapters/services).
 - [ ] **Memory:** Updated `MEMORY.md` with step progress, state, and next actions.
 - [ ] **Release:** Commit completed task files, tag release with bumped patch version (e.g. v0.0.x -> v0.0.x+1), push commit/tag, create GitHub release, and warm Go proxy (`GOPROXY=https://proxy.golang.org go list -m github.com/king-glitch/hexag@<version>`) so consumers can immediately update without proxy cache delays.

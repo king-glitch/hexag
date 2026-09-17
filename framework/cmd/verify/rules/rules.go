@@ -256,6 +256,10 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 	isDatabaseDir := strings.Contains(slashPath, "/adapters/database/")
 	isPortsDomain := strings.HasSuffix(slashPath, "internal/ports/domain.go")
 	isPortsDir := strings.Contains(slashPath, "/internal/ports/") && !strings.Contains(slashPath, "/internal/ports/mocks/")
+	isConstantDir := strings.Contains(slashPath, "/internal/core/constant/") ||
+		strings.Contains(slashPath, "/core/constant/") ||
+		strings.Contains(slashPath, "/constant/") ||
+		strings.Contains(slashPath, "/constants/")
 
 	importedPackages := make(map[string]bool)
 	for _, imp := range f.Imports {
@@ -285,29 +289,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 
 		switch node := n.(type) {
 		case *ast.GenDecl:
-			if isPortsDir && node.Tok == token.CONST {
-				lastType := ""
-				for _, spec := range node.Specs {
-					if vs, ok := spec.(*ast.ValueSpec); ok {
-						if vs.Type != nil {
-							lastType = formatTypeExpr(vs.Type)
-						} else if len(vs.Values) > 0 {
-							lastType = ""
-						}
-						if lastType != "" && !strings.Contains(lastType, ".") && !isBuiltinGoType(lastType) {
-							if _, exists := v.portsEnumTypes[lastType]; !exists {
-								v.portsEnumTypes[lastType] = v.fset.Position(vs.Pos())
-							}
-							for _, name := range vs.Names {
-								v.portsEnumConstants[lastType] = append(v.portsEnumConstants[lastType], enumConstant{
-									name: name.Name,
-									pos:  v.fset.Position(name.Pos()),
-								})
-							}
-						}
-					}
-				}
-			}
+			v.checkGenDecl(filePath, node, isInternal, isPortsDir, isConstantDir)
 
 		case *ast.TypeSpec:
 			v.checkTypeSpec(filePath, node, isServiceDir, isEndpointDir)
@@ -342,6 +324,80 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 		structFields := collectStructFields(f)
 		structGetters := collectGetterMethods(f)
 		v.checkStructAccessorConsistency(filePath, structFields, structGetters)
+	}
+}
+
+func (v *Verifier) checkGenDecl(filePath string, decl *ast.GenDecl, isInternal, isPortsDir, isConstantDir bool) {
+	// Track enum types and constants in ports
+	if isPortsDir && decl.Tok == token.CONST {
+		lastType := ""
+		for _, spec := range decl.Specs {
+			if vs, ok := spec.(*ast.ValueSpec); ok {
+				if vs.Type != nil {
+					lastType = formatTypeExpr(vs.Type)
+				} else if len(vs.Values) > 0 {
+					lastType = ""
+				}
+				if lastType != "" && !strings.Contains(lastType, ".") && !isBuiltinGoType(lastType) {
+					if _, exists := v.portsEnumTypes[lastType]; !exists {
+						v.portsEnumTypes[lastType] = v.fset.Position(vs.Pos())
+					}
+					for _, name := range vs.Names {
+						v.portsEnumConstants[lastType] = append(v.portsEnumConstants[lastType], enumConstant{
+							name: name.Name,
+							pos:  v.fset.Position(name.Pos()),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Check constants outside constant folder and ports
+	if isInternal && !isPortsDir && !isConstantDir && decl.Tok == token.CONST {
+		for _, spec := range decl.Specs {
+			if vs, ok := spec.(*ast.ValueSpec); ok {
+				for _, name := range vs.Names {
+					if name.Name == "_" || name.Name == "CollectionName" {
+						continue
+					}
+					v.addViolation(
+						v.fset.Position(name.Pos()),
+						"Constants",
+						"Constants must be defined in the constant folder ('internal/core/constant/') or typed enums in 'internal/ports/'. Defining local constants in adapter or service files is forbidden.",
+						fmt.Sprintf("Constant '%s' defined in '%s' outside constant folder.", name.Name, filepath.Base(filePath)),
+						fmt.Sprintf("Move constant '%s' to 'internal/core/constant/' (e.g. 'constant.go') or 'internal/ports/enum.go'.", name.Name),
+					)
+				}
+			}
+		}
+	}
+
+	// Check sentinel errors defined outside ports
+	if isInternal && !isPortsDir && decl.Tok == token.VAR {
+		for _, spec := range decl.Specs {
+			if vs, ok := spec.(*ast.ValueSpec); ok {
+				for i, val := range vs.Values {
+					if call, ok := val.(*ast.CallExpr); ok && isErrorCreationCall(call) {
+						name := ""
+						if i < len(vs.Names) {
+							name = vs.Names[i].Name
+						}
+						pos := v.fset.Position(val.Pos())
+						if i < len(vs.Names) {
+							pos = v.fset.Position(vs.Names[i].Pos())
+						}
+						v.addViolation(
+							pos,
+							"Sentinels",
+							"Define project sentinels in 'internal/ports/errors.go'; defining local or package-level error variables outside ports is forbidden.",
+							fmt.Sprintf("Sentinel error '%s' defined in '%s' outside internal/ports.", name, filepath.Base(filePath)),
+							fmt.Sprintf("Move sentinel error '%s' to 'internal/ports/errors.go' (e.g. as 'ports.%s') and register it in init().", name, deriveSentinelName(name)),
+						)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -1172,6 +1228,31 @@ func deriveExportedName(name string) string {
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
 }
+
+func deriveSentinelName(name string) string {
+	if strings.HasPrefix(name, "err") {
+		return "Err" + strings.TrimPrefix(name, "err")
+	}
+	return deriveExportedName(name)
+}
+
+func isErrorCreationCall(call *ast.CallExpr) bool {
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			if ident.Name == "errors" && (sel.Sel.Name == "New" || sel.Sel.Name == "Errorf") {
+				return true
+			}
+			if ident.Name == "fmt" && sel.Sel.Name == "Errorf" {
+				return true
+			}
+			if ident.Name == "serviceerrors" && strings.HasPrefix(sel.Sel.Name, "NewServiceError") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 
 func formatTypeExpr(expr ast.Expr) string {
 	switch t := expr.(type) {

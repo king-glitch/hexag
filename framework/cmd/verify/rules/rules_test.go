@@ -954,3 +954,122 @@ func filterByDescription(violations []Violation, substring string) []Violation {
 	}
 	return result
 }
+
+func TestVerifier_LocalSentinelErrors(t *testing.T) {
+	t.Run("var err = errors.New in adapters is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package runtime
+
+import "errors"
+
+var errNeedsRelogin = errors.New("game connection needs relogin")
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Sentinels")
+		require.Len(t, v, 1)
+		assert.Contains(t, v[0].Description, "errNeedsRelogin")
+		assert.Contains(t, v[0].Suggestion, "ports.ErrNeedsRelogin")
+	})
+
+	t.Run("var Err = errors.New in ports is allowed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "ports")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package ports
+
+import "errors"
+
+var ErrUserNotFound = errors.New("user not found")
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "errors.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Sentinels")
+		assert.Empty(t, v)
+	})
+}
+
+func TestVerifier_ConstantsLocation(t *testing.T) {
+	t.Run("const in adapters is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package runtime
+
+import "time"
+
+const (
+	loadTimeout = 30 * time.Second
+	maxRelogins = 3
+)
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "runner.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Constants")
+		require.Len(t, v, 2)
+		assert.Contains(t, v[0].Description, "loadTimeout")
+		assert.Contains(t, v[1].Description, "maxRelogins")
+	})
+
+	t.Run("const in internal/core/constant is allowed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "core", "constant")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package constant
+
+const (
+	KeyAuthenticatedUserID = "authenticated_user_id"
+	MaxAttempts            = 5
+)
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "constant.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Constants")
+		assert.Empty(t, v)
+	})
+
+	t.Run("const in internal/ports is allowed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "ports")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package ports
+
+type Status string
+
+const (
+	StatusActive Status = "active"
+)
+
+func (s Status) IsValid() bool {
+	return s == StatusActive
+}
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "enum.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		v := filterByCategory(verifier.Violations(), "Constants")
+		assert.Empty(t, v)
+	})
+}
+
