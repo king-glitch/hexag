@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const version = "v0.0.28"
+const version = "v0.0.29"
 
 func usage() {
 	fmt.Println("hexag — hexagonal architecture toolkit and AI agent verifier")

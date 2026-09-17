@@ -39,7 +39,7 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **Errors**           | Naked returns: `return err`                     | `return errors.Wrap(err, "context message")`                 |
 | **Errors**           | Discarding errors: `_ = dep.Method(...)`, `_ = err` | Handle or return every error wrapped with `errors.Wrap`      |
 | **Sentinels**        | `if err == ports.ErrNotFound`                   | `if errors.Is(err, ports.ErrNotFound)`                       |
-| **Time Handling**    | Calling `time.Now()` in services/handlers        | Pass `at time.Time` through; capture once at transport boundary (`at := hextransport.RequestTime(c)`) |
+| **Time Handling**    | Calling `time.Now()` in functions that receive `time.Time`; multiple `time.Now()` in same function | Capture once at entry (`at := time.Now()` or `at := hextransport.RequestTime(c)`) and pass `at` through |
 | **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
 | **Validation**       | Re-checking string length/enums in service      | Let HTTP validator tags handle transport validation          |
 | **Enums**            | Enums without `IsValid() bool`                  | All domain enums must implement `IsValid() bool`             |

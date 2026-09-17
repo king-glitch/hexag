@@ -19,7 +19,7 @@ Hand-off state for the next agent. Rules: `AGENTS.md`.
 - Handled private struct field injections: differentiating between internal receiver field accesses (renaming abbreviated `*Repo` fields) vs external dependency accesses (calling getter methods).
 - Mechanically enforced zero-tolerance ban on error suppression: discarding dependency method returns (`_ = dep.Method(...)`, `_, _ = dep.Method(...)`) or discarding errors (`_ = err`, `_ = serr`) is forbidden.
 - Mechanically enforced zero-tolerance ban on nil checks across injected dependencies in `internal/`: `if s.us != nil`, `if t.brr != nil`, etc. are forbidden as dependencies must be unconditionally injected via constructors.
-- `time.Now()` ban scoped to services and endpoint handlers only; adapters doing background work (goroutines, queue workers, supervisors) are transport boundaries where `time.Now()` is legitimate.
+- Dynamic per-function `time.Now()` check (no directory flags): if function receives `time.Time` param, any `time.Now()` is a violation; if no time param, multiple `time.Now()` calls are a violation (capture once as `at := time.Now()` and reuse).
 - Supported disambiguated service acronyms: valid unexported 2-4 lowercase letter acronyms that are subsequences of the service interface name ending in 's' (e.g. `aus` for `ports.AuditService` when `as` is taken by `ports.AuthenticationService`, `sgs`/`sugs` for `ports.SuggestionService`, `bos` for `ports.BountyService`, `ss` for `ports.BotScriptService`) are accepted.
 
 ## Hard-won facts

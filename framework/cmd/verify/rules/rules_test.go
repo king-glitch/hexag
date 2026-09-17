@@ -222,9 +222,10 @@ func (h UserHandler) unexported(c fiber.Ctx) error {
 	// Expected:
 	// 1. EmptyResponse struct
 	// 2. unexported handler method
-	// 3. time.Now() in handler
-	// 4. c.Query("page")
-	assert.Len(t, violations, 4)
+	// 3. c.Query("page")
+	// Note: time.Now() is checked dynamically per-function, not by directory.
+	// Single time.Now() in a function without time.Time param is allowed.
+	assert.Len(t, violations, 3)
 }
 
 func TestVerifier_Enums(t *testing.T) {
@@ -640,6 +641,132 @@ type UserHandler struct {
 	assert.Empty(t, verifier.Violations())
 }
 
+func TestVerifier_DynamicTimeNow(t *testing.T) {
+	t.Run("time.Now in function with time.Time param is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		svcDir := filepath.Join(tmpDir, "internal", "services", "user")
+		require.NoError(t, os.MkdirAll(svcDir, 0755))
 
+		content := `package user
 
+import "time"
 
+type Service struct{}
+
+func (s Service) DoWork(ctx interface{}, at time.Time) {
+	_ = time.Now()
+}
+`
+		filePath := filepath.Join(svcDir, "service.go")
+		require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+		verifier := NewVerifier()
+		err := verifier.VerifyPath(tmpDir)
+		require.NoError(t, err)
+
+		violations := verifier.Violations()
+		timeViolations := filterByCategory(violations, "Time Handling")
+		require.Len(t, timeViolations, 1)
+		assert.Contains(t, timeViolations[0].Description, "already has a time.Time parameter")
+	})
+
+	t.Run("multiple time.Now without time param is violation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapterDir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(adapterDir, 0755))
+
+		content := `package runtime
+
+import "time"
+
+type runner struct{}
+
+func (r *runner) loop() {
+	t1 := time.Now()
+	_ = t1
+	t2 := time.Now()
+	_ = t2
+	t3 := time.Now()
+	_ = t3
+}
+`
+		filePath := filepath.Join(adapterDir, "runner.go")
+		require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+		verifier := NewVerifier()
+		err := verifier.VerifyPath(tmpDir)
+		require.NoError(t, err)
+
+		violations := verifier.Violations()
+		timeViolations := filterByCategory(violations, "Time Handling")
+		require.Len(t, timeViolations, 2)
+		assert.Contains(t, timeViolations[0].Description, "Multiple time.Now() calls")
+		assert.Contains(t, timeViolations[1].Description, "Multiple time.Now() calls")
+	})
+
+	t.Run("single time.Now without time param is OK", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapterDir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+		require.NoError(t, os.MkdirAll(adapterDir, 0755))
+
+		content := `package runtime
+
+import "time"
+
+type runner struct{}
+
+func (r *runner) tick() {
+	now := time.Now()
+	_ = now
+}
+`
+		filePath := filepath.Join(adapterDir, "runner.go")
+		require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+		verifier := NewVerifier()
+		err := verifier.VerifyPath(tmpDir)
+		require.NoError(t, err)
+
+		timeViolations := filterByCategory(verifier.Violations(), "Time Handling")
+		assert.Empty(t, timeViolations)
+	})
+
+	t.Run("adapter function with time.Time param and time.Now is still caught", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		adapterDir := filepath.Join(tmpDir, "internal", "adapters", "queue")
+		require.NoError(t, os.MkdirAll(adapterDir, 0755))
+
+		content := `package queue
+
+import "time"
+
+type dispatcher struct{}
+
+func (d *dispatcher) dispatch(at time.Time) {
+	now := time.Now()
+	_ = now
+}
+`
+		filePath := filepath.Join(adapterDir, "dispatcher.go")
+		require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+		verifier := NewVerifier()
+		err := verifier.VerifyPath(tmpDir)
+		require.NoError(t, err)
+
+		violations := verifier.Violations()
+		timeViolations := filterByCategory(violations, "Time Handling")
+		require.Len(t, timeViolations, 1)
+		assert.Contains(t, timeViolations[0].Description, "already has a time.Time parameter")
+	})
+}
+
+func filterByCategory(violations []Violation, category string) []Violation {
+	var result []Violation
+	for _, v := range violations {
+		if v.Category == category {
+			result = append(result, v)
+		}
+	}
+	return result
+}

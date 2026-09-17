@@ -313,7 +313,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 			v.checkTypeSpec(filePath, node, isServiceDir, isEndpointDir)
 
 		case *ast.FuncDecl:
-			v.checkFuncDecl(filePath, node, isServiceDir, isEndpointDir, isPortsDomain)
+			v.checkFuncDecl(filePath, node, isInternal, isServiceDir, isEndpointDir, isPortsDomain)
 
 		case *ast.CallExpr:
 			v.checkCallExpr(filePath, node, isInternal, isServiceDir, isEndpointDir, isDatabaseDir, importedPackages)
@@ -484,7 +484,7 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 	}
 }
 
-func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir, isEndpointDir, isPortsDomain bool) {
+func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isInternal, isServiceDir, isEndpointDir, isPortsDomain bool) {
 	pos := v.fset.Position(fn.Pos())
 
 	// Check if this method implements IsValid() bool for an enum type
@@ -626,27 +626,81 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 			}
 		}
 	}
+
+	// Dynamic time.Now() check: per-function analysis instead of directory flags.
+	if isInternal && fn.Body != nil {
+		v.checkTimeNow(filePath, fn)
+	}
+}
+
+func isTimeNowCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	return ok && ident.Name == "time" && sel.Sel.Name == "Now"
+}
+
+func funcHasTimeParam(fn *ast.FuncDecl) bool {
+	if fn.Type.Params == nil {
+		return false
+	}
+	for _, param := range fn.Type.Params.List {
+		typeStr := formatTypeExpr(param.Type)
+		if typeStr == "time.Time" || typeStr == "Time" {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *Verifier) checkTimeNow(filePath string, fn *ast.FuncDecl) {
+	hasTimeParam := funcHasTimeParam(fn)
+
+	var positions []token.Position
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if ok && isTimeNowCall(call) {
+			positions = append(positions, v.fset.Position(call.Pos()))
+		}
+		return true
+	})
+
+	if len(positions) == 0 {
+		return
+	}
+
+	if hasTimeParam {
+		for _, pos := range positions {
+			v.addViolation(
+				pos,
+				"Time Handling",
+				"Function already receives 'time.Time' as a parameter; use that value instead of calling time.Now().",
+				"Calling time.Now() when the function already has a time.Time parameter is forbidden.",
+				"Use the existing time parameter (e.g. 'at') instead of calling time.Now().",
+			)
+		}
+		return
+	}
+
+	if len(positions) > 1 {
+		for _, pos := range positions[1:] {
+			v.addViolation(
+				pos,
+				"Time Handling",
+				"Capture time once per function (e.g. 'at := time.Now()') and reuse; avoid multiple time.Now() calls.",
+				"Multiple time.Now() calls in the same function. Capture once and reuse.",
+				"Replace scattered time.Now() calls with a single 'at := time.Now()' at the start of the function and pass 'at' through.",
+			)
+		}
+	}
 }
 
 func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isInternal, isServiceDir, isEndpointDir, isDatabaseDir bool, importedPackages map[string]bool) {
 	pos := v.fset.Position(call.Pos())
 
-	// Check time.Now() in services and endpoint handlers.
-	// Adapters doing background work (runtime goroutines, queue workers, supervisors)
-	// are transport boundaries where time.Now() is legitimate.
-	if isServiceDir || isEndpointDir {
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "time" && sel.Sel.Name == "Now" {
-				v.addViolation(
-					pos,
-					"Time Handling",
-					"Capture request time once via 'at := hextransport.RequestTime(c)' and pass 'at' through; never invoke time.Now() in services or handlers.",
-					"Calling time.Now() in services or HTTP handlers is forbidden.",
-					"Pass 'at time.Time' as a parameter. In HTTP handlers, capture once via 'at := hextransport.RequestTime(c)'.",
-				)
-			}
-		}
-	}
+	// time.Now() is checked per-function in checkTimeNow, not per-call here.
 
 	// Check c.Query(...) in endpoint handlers
 	if isEndpointDir {
