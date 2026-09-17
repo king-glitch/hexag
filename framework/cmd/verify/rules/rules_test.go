@@ -527,5 +527,93 @@ func (h ConnectionHandler) Connect(c fiber.Ctx) error {
 	assert.Empty(t, verifierValid.Violations())
 }
 
+func TestVerifier_DependencyNilChecksAndErrorSuppression(t *testing.T) {
+	tmpDir := t.TempDir()
+	adapterDir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
+	require.NoError(t, os.MkdirAll(adapterDir, 0755))
+
+	// Invalid code violating all three rules:
+	// 1. Nil check on injected repository: 'if t.brr != nil'
+	// 2. Calling time.Now() in internal package
+	// 3. Discarding errors on dependency calls: '_ = t.brr.UpdateStats(...)', '_ = t.brr.MarkEnded(...)'
+	invalidContent := `package runtime
+
+import (
+	"context"
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"example/internal/ports"
+)
+
+type taskSlot struct {
+	brr ports.BotRunRepository
+}
+
+func (t *taskSlot) Teardown(ctx context.Context, id bson.ObjectID) {
+	if t.brr != nil {
+		now := time.Now()
+		_ = t.brr.UpdateStats(ctx, id, now)
+		_ = t.brr.MarkEnded(ctx, id, now)
+	}
+}
+`
+	filePath := filepath.Join(adapterDir, "task.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(invalidContent), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	require.Len(t, violations, 4)
+
+	// Violation 1: Nil check on t.brr
+	assert.Equal(t, "Dependencies", violations[0].Category)
+	assert.Contains(t, violations[0].Description, "t.brr")
+
+	// Violation 2: Calling time.Now()
+	assert.Equal(t, "Time Handling", violations[1].Category)
+	assert.Contains(t, violations[1].Description, "time.Now()")
+
+	// Violation 3: Discarding UpdateStats error
+	assert.Equal(t, "Errors", violations[2].Category)
+	assert.Contains(t, violations[2].Description, "t.brr.UpdateStats(...)")
+
+	// Violation 4: Discarding MarkEnded error
+	assert.Equal(t, "Errors", violations[3].Category)
+	assert.Contains(t, violations[3].Description, "t.brr.MarkEnded(...)")
+}
+
+func TestVerifier_ExplicitErrorSuppression(t *testing.T) {
+	tmpDir := t.TempDir()
+	svcDir := filepath.Join(tmpDir, "internal", "services", "user")
+	require.NoError(t, os.MkdirAll(svcDir, 0755))
+
+	content := `package user
+
+import (
+	"errors"
+)
+
+func DoWork() {
+	err := errors.New("something went wrong")
+	_ = err
+}
+`
+	filePath := filepath.Join(svcDir, "service.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(content), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	require.Len(t, violations, 1)
+	assert.Equal(t, "Errors", violations[0].Category)
+	assert.Contains(t, violations[0].Description, "Discarding error 'err'")
+}
+
+
 
 

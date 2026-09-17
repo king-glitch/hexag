@@ -32,12 +32,14 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **Dependencies**     | `s.deps.GetConnectionRepo()`                    | `s.deps.GetConnectionRepository()` (never abbreviate)        |
 | **Dependencies**     | `s.deps.ConnectionRepo` (struct field access)   | `s.deps.GetConnectionRepository()` (getter method)           |
 | **Dependencies**     | `s.deps.ConnectionRepository` (field access)    | `s.deps.GetConnectionRepository()` (getter method)           |
+| **Dependencies**     | Nil checks: `if s.us != nil`, `if t.brr != nil` | Dependencies are guaranteed non-nil via constructor injection|
 | **Tx Runner**        | Storing `txRunner` as a field on service struct | Call `s.GetTransactionRunner().Run(...)` via base service    |
 | **Collections**      | Raw strings: `"users"`, `"user"`                | `ports.UserModel{}.CollectionName()`                         |
 | **Collections**      | Plural names: `"subscriptions"`                 | Singular names: `"subscription"`                             |
 | **Errors**           | Naked returns: `return err`                     | `return errors.Wrap(err, "context message")`                 |
+| **Errors**           | Discarding errors: `_ = dep.Method(...)`, `_ = err` | Handle or return every error wrapped with `errors.Wrap`      |
 | **Sentinels**        | `if err == ports.ErrNotFound`                   | `if errors.Is(err, ports.ErrNotFound)`                       |
-| **Time Handling**    | Calling `time.Now()` in services/handlers       | Capture once: `at := hextransport.RequestTime(c)`            |
+| **Time Handling**    | Calling `time.Now()` anywhere in `internal/`    | Pass `at time.Time` through; capture once at transport boundary (`at := hextransport.RequestTime(c)`) |
 | **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
 | **Validation**       | Re-checking string length/enums in service      | Let HTTP validator tags handle transport validation          |
 | **Enums**            | Enums without `IsValid() bool`                  | All domain enums must implement `IsValid() bool`             |
@@ -330,10 +332,10 @@ Execute this checklist before reporting any task complete:
 - [ ] **File Names:** Every file is single-word lowercase (`service.go`, `handler.go`, `repository.go`), with kebab-case
   reserved solely for sibling disambiguation.
 - [ ] **Service Fields:** Primary repository is named `repository`. Sibling services and handler service fields are named using lowercase acronyms (`us`, `cs`, `bcs`, `gas`, `es`) and are unexported across all structs in `internal/`.
-- [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations or direct field accesses).
+- [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations or direct field accesses); zero nil checks on dependencies (`if s.us != nil`, `if t.brr != nil`).
 - [ ] **Collections:** All collections use `ports.<Entity>Model{}.CollectionName()` (never hardcoded strings or plural
   names).
-- [ ] **Error Wrapping:** Every error propagation uses `errors.Wrap`; all comparisons use `errors.Is`.
+- [ ] **Error Wrapping:** Every error propagation uses `errors.Wrap`; all comparisons use `errors.Is`; zero discarded errors (`_ = dep.Method(...)`, `_ = err`).
 - [ ] **Security:** All token lookups/writes hash tokens with `hexcrypto.HashToken(token)` before DB operations.
 - [ ] **Transactions:** Multi-write mutations run via `s.GetTransactionRunner().Run` using the inner callback context.
 - [ ] **Generators:** Ran `make generate` and `make bruno` if domain models or HTTP routes were modified.

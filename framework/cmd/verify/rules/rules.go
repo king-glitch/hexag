@@ -250,6 +250,7 @@ func (v *Verifier) checkFileName(filePath, baseName string) {
 
 func (v *Verifier) checkAST(filePath string, f *ast.File) {
 	slashPath := filepath.ToSlash(filePath)
+	isInternal := isInternalPath(slashPath)
 	isServiceDir := strings.Contains(slashPath, "/services/")
 	isEndpointDir := strings.Contains(slashPath, "/adapters/endpoint/")
 	isDatabaseDir := strings.Contains(slashPath, "/adapters/database/")
@@ -315,10 +316,13 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 			v.checkFuncDecl(filePath, node, isServiceDir, isEndpointDir, isPortsDomain)
 
 		case *ast.CallExpr:
-			v.checkCallExpr(filePath, node, isServiceDir, isEndpointDir, isDatabaseDir, importedPackages)
+			v.checkCallExpr(filePath, node, isInternal, isServiceDir, isEndpointDir, isDatabaseDir, importedPackages)
 
 		case *ast.BinaryExpr:
-			v.checkBinaryExpr(filePath, node, isServiceDir)
+			v.checkBinaryExpr(filePath, node, isInternal, isServiceDir)
+
+		case *ast.AssignStmt:
+			v.checkAssignStmt(filePath, node, isInternal)
 
 		case *ast.SwitchStmt:
 			v.checkSwitchStmt(filePath, node)
@@ -624,18 +628,18 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 	}
 }
 
-func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceDir, isEndpointDir, isDatabaseDir bool, importedPackages map[string]bool) {
+func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isInternal, isServiceDir, isEndpointDir, isDatabaseDir bool, importedPackages map[string]bool) {
 	pos := v.fset.Position(call.Pos())
 
-	// Check time.Now() in services or endpoints
-	if isServiceDir || isEndpointDir {
+	// Check time.Now() in internal packages
+	if isInternal {
 		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "time" && sel.Sel.Name == "Now" {
 				v.addViolation(
 					pos,
 					"Time Handling",
-					"Capture request time once via 'at := hextransport.RequestTime(c)' and pass 'at' through; never invoke time.Now() in services/handlers.",
-					"Calling time.Now() in services or HTTP handlers is forbidden.",
+					"Capture request time once (e.g. 'at := hextransport.RequestTime(c)') and pass 'at time.Time' through; never invoke time.Now() in internal packages.",
+					"Calling time.Now() in internal packages is forbidden.",
 					"Pass 'at time.Time' as a parameter. In HTTP handlers, capture once via 'at := hextransport.RequestTime(c)'.",
 				)
 			}
@@ -697,7 +701,7 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 	}
 }
 
-func (v *Verifier) checkBinaryExpr(filePath string, bin *ast.BinaryExpr, isServiceDir bool) {
+func (v *Verifier) checkBinaryExpr(filePath string, bin *ast.BinaryExpr, isInternal, isServiceDir bool) {
 	pos := v.fset.Position(bin.Pos())
 
 	// Check sentinel equality: err == ports.ErrNotFound or err != ports.ErrNotFound
@@ -720,26 +724,84 @@ func (v *Verifier) checkBinaryExpr(filePath string, bin *ast.BinaryExpr, isServi
 			)
 		}
 
-		// Check nil checks on injected sibling services: if s.us == nil
-		if isServiceDir {
-			if isNilExpr(bin.X) && isServiceSelector(bin.Y) {
-				serviceExpr := exprToString(bin.Y)
-				v.addViolation(
-					pos,
-					"Sibling Services",
-					"Injected service interfaces are NEVER nil. Never write nil checks (if s.us != nil).",
-					fmt.Sprintf("Nil check on injected sibling service '%s' is forbidden.", serviceExpr),
-					fmt.Sprintf("Remove nil check guard on '%s'. Dependencies are guaranteed non-nil via constructor NewService(...).", serviceExpr),
-				)
-			} else if isNilExpr(bin.Y) && isServiceSelector(bin.X) {
-				serviceExpr := exprToString(bin.X)
-				v.addViolation(
-					pos,
-					"Sibling Services",
-					"Injected service interfaces are NEVER nil. Never write nil checks (if s.us != nil).",
-					fmt.Sprintf("Nil check on injected sibling service '%s' is forbidden.", serviceExpr),
-					fmt.Sprintf("Remove nil check guard on '%s'. Dependencies are guaranteed non-nil via constructor NewService(...).", serviceExpr),
-				)
+		// Check nil checks on injected dependencies: if s.us == nil, if t.brr != nil
+		if isInternal {
+			var depExpr ast.Expr
+			if isNilExpr(bin.X) && isDependencyExpr(bin.Y) {
+				depExpr = bin.Y
+			} else if isNilExpr(bin.Y) && isDependencyExpr(bin.X) {
+				depExpr = bin.X
+			}
+
+			if depExpr != nil {
+				depStr := exprToString(depExpr)
+				if isServiceSelector(depExpr) && isServiceDir {
+					v.addViolation(
+						pos,
+						"Sibling Services",
+						"Injected service interfaces are NEVER nil. Never write nil checks (if s.us != nil).",
+						fmt.Sprintf("Nil check on injected sibling service '%s' is forbidden.", depStr),
+						fmt.Sprintf("Remove nil check guard on '%s'. Dependencies are guaranteed non-nil via constructor NewService(...).", depStr),
+					)
+				} else {
+					v.addViolation(
+						pos,
+						"Dependencies",
+						"Injected dependencies are NEVER nil. Never write nil checks (e.g. 'if s.us != nil' or 'if t.brr != nil'). Dependencies must be injected unconditionally via constructors.",
+						fmt.Sprintf("Nil check on injected dependency '%s' is forbidden.", depStr),
+						fmt.Sprintf("Remove nil check guard on '%s'. Dependencies are guaranteed non-nil via constructor injection.", depStr),
+					)
+				}
+			}
+		}
+	}
+}
+
+func (v *Verifier) checkAssignStmt(filePath string, assign *ast.AssignStmt, isInternal bool) {
+	if !isInternal {
+		return
+	}
+	pos := v.fset.Position(assign.Pos())
+
+	// 1. Explicit error suppression on variable: _ = err, _ = serr, etc.
+	if len(assign.Lhs) == len(assign.Rhs) {
+		for i, lhs := range assign.Lhs {
+			if isBlankIdent(lhs) {
+				if ident, ok := assign.Rhs[i].(*ast.Ident); ok {
+					lower := strings.ToLower(ident.Name)
+					if lower == "err" || lower == "serr" || strings.HasSuffix(lower, "err") || strings.HasSuffix(lower, "error") {
+						v.addViolation(
+							pos,
+							"Errors",
+							"Suppressing errors with '_ = err' is forbidden; every error must be handled or returned wrapped.",
+							fmt.Sprintf("Discarding error '%s' with blank identifier is forbidden.", ident.Name),
+							"Handle the error or return it wrapped with 'errors.Wrap(err, \"context message\")'.",
+						)
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Discarding error from dependency method call:
+	// e.g.: _ = t.brr.UpdateStats(...), _, _ = s.repository.UpdateEarnCounters(...)
+	// In hexagonal architecture, all dependency methods return error as their last return value.
+	// Discarding the last return value with '_' suppresses the error.
+	if len(assign.Lhs) > 0 && isBlankIdent(assign.Lhs[len(assign.Lhs)-1]) && len(assign.Rhs) == 1 {
+		if call, ok := assign.Rhs[0].(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				if isDependencyExpr(sel.X) || isDepsExpr(sel.X) {
+					callStr := exprToString(call)
+					v.addViolation(
+						pos,
+						"Errors",
+						"Suppressing errors from dependency method calls with blank identifier '_' is forbidden; every error must be handled or returned wrapped.",
+						fmt.Sprintf("Discarding error return from dependency call '%s' is forbidden.", callStr),
+						"Handle the returned error or return it wrapped with 'errors.Wrap(err, \"context message\")'.",
+					)
+					return
+				}
 			}
 		}
 	}
@@ -943,6 +1005,9 @@ func computeAcronym(typeStr string) string {
 }
 
 func isErrSentinel(str string) bool {
+	if strings.HasSuffix(str, ")") || strings.HasSuffix(str, "(...)") {
+		return false
+	}
 	if strings.HasPrefix(str, "ports.Err") {
 		return true
 	}
@@ -1005,6 +1070,107 @@ func isServiceAcronym(str string) bool {
 	return false
 }
 
+func isBlankIdent(expr ast.Expr) bool {
+	if ident, ok := expr.(*ast.Ident); ok && ident.Name == "_" {
+		return true
+	}
+	return false
+}
+
+func isDependencyExpr(expr ast.Expr) bool {
+	if expr == nil {
+		return false
+	}
+	switch e := expr.(type) {
+	case *ast.SelectorExpr:
+		if isDepsExpr(e.X) {
+			return true
+		}
+		return isDependencyName(e.Sel.Name)
+	case *ast.CallExpr:
+		if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
+			return isDependencyName(sel.Sel.Name)
+		}
+		return false
+	case *ast.Ident:
+		return isDependencyName(e.Name)
+	default:
+		return false
+	}
+}
+
+func isDependencyName(name string) bool {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, "err") || strings.HasSuffix(lower, "error") {
+		return false
+	}
+	if lower == "repository" || lower == "repo" {
+		return true
+	}
+	if strings.HasSuffix(lower, "repository") || strings.HasSuffix(lower, "repo") {
+		return true
+	}
+	if strings.HasSuffix(lower, "service") || strings.HasSuffix(lower, "svc") {
+		return true
+	}
+	if strings.HasSuffix(lower, "client") {
+		return true
+	}
+	if strings.HasSuffix(lower, "registry") {
+		return true
+	}
+	if strings.HasSuffix(lower, "dialer") {
+		return true
+	}
+	if strings.HasSuffix(lower, "handshaker") {
+		return true
+	}
+	if strings.HasSuffix(lower, "supervisor") {
+		return true
+	}
+	if strings.HasSuffix(lower, "runner") {
+		return true
+	}
+	if strings.HasSuffix(lower, "eventbus") || lower == "eventbus" || lower == "bus" {
+		return true
+	}
+	return isDependencyAcronym(name)
+}
+
+func isDependencyAcronym(name string) bool {
+	clean := name
+	if idx := strings.LastIndex(name, "."); idx != -1 {
+		clean = name[idx+1:]
+	}
+	if len(clean) < 2 || len(clean) > 4 {
+		return false
+	}
+	lower := strings.ToLower(clean)
+	if strings.HasSuffix(lower, "err") || strings.HasSuffix(lower, "error") {
+		return false
+	}
+	for _, r := range clean {
+		if !unicode.IsLower(r) {
+			return false
+		}
+	}
+	// Acronyms end in 'r' (repository), 's' (service), 'c' (client)
+	last := clean[len(clean)-1]
+	if last != 'r' && last != 's' && last != 'c' {
+		return false
+	}
+	// Exclude common non-acronym words
+	switch clean {
+	case "user", "char", "tier", "pair", "hour", "year", "door", "peer",
+		"attr", "expr", "curr", "iter", "ptr", "str", "bar", "car",
+		"this", "status", "pass", "plus", "loss", "desc", "spec", "sync",
+		"func", "exec", "proc", "calc", "misc", "doc", "src", "pic", "rec",
+		"args", "rows", "keys", "tags", "opts", "vars", "msgs", "body":
+		return false
+	}
+	return true
+}
+
 func isPluralCollection(name string) bool {
 	if !strings.HasSuffix(name, "s") {
 		return false
@@ -1037,6 +1203,8 @@ func exprToString(expr ast.Expr) string {
 		return e.Name
 	case *ast.SelectorExpr:
 		return exprToString(e.X) + "." + e.Sel.Name
+	case *ast.CallExpr:
+		return exprToString(e.Fun) + "(...)"
 	case *ast.StarExpr:
 		return "*" + exprToString(e.X)
 	case *ast.BasicLit:
