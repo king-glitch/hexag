@@ -108,26 +108,24 @@ import (
 {{range .Imports}}	"{{.}}"
 {{end}})
 
-{{define "fieldDef"}}
-	{{.GoName}} {{if .SubFields}}struct {
+{{define "fieldDef"}}	{{.GoName}} {{if .SubFields}}struct {
 		{{.FieldPkg}}Field[{{.GoType}}]
-		{{range .SubFields}}{{template "fieldDef" .}}{{end}}
-	}{{else}}{{.FieldPkg}}Field[{{.GoType}}]{{end}}
-{{end}}
+{{range .SubFields}}{{template "fieldDef" .}}
+{{end}}	}{{else}}{{.FieldPkg}}Field[{{.GoType}}]{{end}}{{end}}
 
-{{define "fieldVal"}}
-	{{.GoName}}: {{if .SubFields}}struct {
+{{define "fieldVal"}}	{{.GoName}}: {{if .SubFields}}struct {
 		{{.FieldPkg}}Field[{{.GoType}}]
-		{{range .SubFields}}{{template "fieldDef" .}}{{end}}
-	}{
+{{range .SubFields}}{{template "fieldDef" .}}
+{{end}}	}{
 		Field: {{.FieldPkg}}NewField[{{.GoType}}]("{{.BsonKey}}"),
-		{{range .SubFields}}{{template "fieldVal" .}}{{end}}
-	},{{else}}{{.FieldPkg}}NewField[{{.GoType}}]("{{.BsonKey}}"),{{end}}
-{{end}}
+{{range .SubFields}}{{template "fieldVal" .}}
+{{end}}	},{{else}}{{.FieldPkg}}NewField[{{.GoType}}]("{{.BsonKey}}"),{{end}}{{end}}
 
-var {{.StructName}} = struct {
+type {{.StructName}}Type struct {
 {{range .Fields}}{{template "fieldDef" .}}
-{{end}}}{
+{{end}}}
+
+var {{.StructName}} = {{.StructName}}Type{
 {{range .Fields}}{{template "fieldVal" .}}
 {{end}}}
 {{if .HasAlias}}
@@ -144,29 +142,28 @@ import (
 {{end}})
 
 ` + FieldTemplateCore + `
-{{define "standaloneFieldDef"}}
-	{{.GoName}} {{if .SubFields}}struct {
+{{define "standaloneFieldDef"}}	{{.GoName}} {{if .SubFields}}struct {
 		Field[{{.GoType}}]
-		{{range .SubFields}}{{template "standaloneFieldDef" .}}{{end}}
-	}{{else}}{{.FieldType}}{{end}}
-{{end}}
+{{range .SubFields}}{{template "standaloneFieldDef" .}}
+{{end}}	}{{else}}{{.FieldType}}{{end}}{{end}}
 
-{{define "standaloneFieldVal"}}
-	{{.GoName}}: {{if .SubFields}}struct {
+{{define "standaloneFieldVal"}}	{{.GoName}}: {{if .SubFields}}struct {
 		Field[{{.GoType}}]
-		{{range .SubFields}}{{template "standaloneFieldDef" .}}{{end}}
-	}{
+{{range .SubFields}}{{template "standaloneFieldDef" .}}
+{{end}}	}{
 		Field: Field[{{.GoType}}]{key: "{{.BsonKey}}"},
-		{{range .SubFields}}{{template "standaloneFieldVal" .}}{{end}}
-	},{{else}}{{.FieldType}}{key: "{{.BsonKey}}"},{{end}}
-{{end}}
+{{range .SubFields}}{{template "standaloneFieldVal" .}}
+{{end}}	},{{else}}{{.FieldType}}{key: "{{.BsonKey}}"},{{end}}{{end}}
 
-var {{.StructName}} = struct {
+type {{.StructName}}Type struct {
 {{range .Fields}}{{template "standaloneFieldDef" .}}
-{{end}}}{
+{{end}}}
+
+var {{.StructName}} = {{.StructName}}Type{
 {{range .Fields}}{{template "standaloneFieldVal" .}}
 {{end}}}
 {{if .HasAlias}}
 var {{.VarName}} = {{.StructName}}
 {{end}}
 `
+

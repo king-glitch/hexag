@@ -5,10 +5,10 @@
 - Run `/ponytail ultra` before work; keep it active.
 - Be terse and implementation-focused.
 - Use installed skills/MCP before improvising.
-- Go 1.26+; module `github.com/king-glitch/hexag`; strict hexagonal architecture.
+- Go 1.27+; module `github.com/king-glitch/hexag`; strict hexagonal architecture.
 - Framework: `github.com/king-glitch/hexag`.
 - Root `CLAUDE.md` imports this file; never remove/break that link.
-- Never commit. Stage completed task files; user controls commit scope/message.
+- After edits, commit changes and tag a new release incrementing the patch version by 1 (e.g. v0.0.1 -> v0.0.2 or v0.0.x -> v0.0.x+1) for Go package consumers; push commit and tag.
 - Check `MEMORY.md` to resume where left off; update `MEMORY.md` after completing each step in `docs/plans/` so next agent can seamlessly continue.
 - If repository state or user instructions conflict with this file, stop and ask.
 
@@ -239,4 +239,4 @@ hexhttpx.New(
 - Verify handlers/repositories contain no business logic.
 - Verify kebab-case routes, singular collections, and token hashing before DB access.
 - Update `MEMORY.md` with step progress, decisions, and handoff notes for next agents.
-- Stage only completed task files; never commit.
+- Commit completed task files and tag release with bumped patch version (e.g. v0.0.x -> v0.0.x+1); push commits and tags so Go package consumers can immediately update.

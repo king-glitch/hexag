@@ -65,7 +65,7 @@ func main() {
 	}
 
 	if portsImportFlag == "" {
-		module, err := findModulePath(".")
+		module, err := findModulePath(filepath.Dir(fileFlag))
 		if err != nil {
 			log.Fatalf("Failed to determine ports import path: %v (pass -portsimport explicitly)", err)
 		}
