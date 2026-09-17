@@ -266,9 +266,10 @@ func (r Role) IsValid() bool {
 	// 2. Role implements IsValid() bool, but misses RoleGuest -> violation!
 	require.Len(t, violations, 2)
 	assert.Equal(t, "Enums", violations[0].Category)
-	assert.Contains(t, violations[0].Description, "Status")
 	assert.Equal(t, "Enums", violations[1].Category)
-	assert.Contains(t, violations[1].Description, "RoleGuest")
+	descJoined := violations[0].Description + " " + violations[1].Description
+	assert.Contains(t, descJoined, "Status")
+	assert.Contains(t, descJoined, "RoleGuest")
 }
 
 func TestVerifier_OneofValidation(t *testing.T) {
@@ -479,5 +480,77 @@ func NewService(
 	assert.Contains(t, violations[0].Description, "repo")
 	assert.Contains(t, violations[1].Description, "creditService")
 }
+
+func TestVerifier_HandlerServiceAcronym(t *testing.T) {
+	tmpDir := t.TempDir()
+	routesDir := filepath.Join(tmpDir, "internal", "adapters", "endpoint", "fiber", "routes")
+	require.NoError(t, os.MkdirAll(routesDir, 0755))
+
+	// Invalid handler: uses 'connectionService' field instead of 'bcs' and calls 'h.connectionService'
+	invalidContent := `package routes
+
+import (
+	"example/internal/ports"
+	"github.com/gofiber/fiber/v3"
+)
+
+type ConnectionHandler struct {
+	connectionService ports.BotConnectionService
+}
+
+func NewConnectionHandler(connectionService ports.BotConnectionService) ConnectionHandler {
+	return ConnectionHandler{connectionService: connectionService}
+}
+
+func (h ConnectionHandler) Connect(c fiber.Ctx) error {
+	return h.connectionService.Connect(c.RequestCtx())
+}
+`
+	filePath := filepath.Join(routesDir, "connection.go")
+	require.NoError(t, os.WriteFile(filePath, []byte(invalidContent), 0644))
+
+	verifier := NewVerifier()
+	err := verifier.VerifyPath(tmpDir)
+	require.NoError(t, err)
+
+	violations := verifier.Violations()
+	// Expected:
+	// 1. Service field 'connectionService' on struct 'ConnectionHandler' must be acronym 'bcs'
+	// 2. Direct struct field access to service 'connectionService' is forbidden
+	require.Len(t, violations, 2)
+	assert.Equal(t, "Sibling Services", violations[0].Category)
+	assert.Contains(t, violations[0].Description, "connectionService")
+	assert.Contains(t, violations[0].Description, "bcs")
+	assert.Equal(t, "Sibling Services", violations[1].Category)
+	assert.Contains(t, violations[1].Description, "connectionService")
+
+	// Now test valid handler: uses 'bcs ports.BotConnectionService' and 'h.bcs.Connect(...)'
+	validContent := `package routes
+
+import (
+	"example/internal/ports"
+	"github.com/gofiber/fiber/v3"
+)
+
+type ConnectionHandler struct {
+	bcs ports.BotConnectionService
+}
+
+func NewConnectionHandler(bcs ports.BotConnectionService) ConnectionHandler {
+	return ConnectionHandler{bcs: bcs}
+}
+
+func (h ConnectionHandler) Connect(c fiber.Ctx) error {
+	return h.bcs.Connect(c.RequestCtx())
+}
+`
+	require.NoError(t, os.WriteFile(filePath, []byte(validContent), 0644))
+
+	verifierValid := NewVerifier()
+	err = verifierValid.VerifyPath(tmpDir)
+	require.NoError(t, err)
+	assert.Empty(t, verifierValid.Violations())
+}
+
 
 

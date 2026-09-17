@@ -430,7 +430,7 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 			if isSiblingServiceType(typeStr) {
 				expectedAcronym := computeAcronym(typeStr)
 				for _, name := range field.Names {
-					if unicode.IsUpper(rune(name.Name[0])) || (!isEndpointDir && name.Name != expectedAcronym) {
+					if unicode.IsUpper(rune(name.Name[0])) || name.Name != expectedAcronym {
 						v.addViolation(
 							v.fset.Position(name.Pos()),
 							"Sibling Services",
@@ -824,14 +824,15 @@ func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, imp
 		return
 	}
 
-	// 3. Check direct struct field access to *Service (not called as a function): s.deps.CreditService or deps.AccountService
-	if !isCallFun && strings.HasSuffix(name, "Service") && !strings.HasPrefix(name, "Get") {
+	// 3. Check direct struct field access to *Service (not called as a function): s.deps.CreditService, deps.AccountService, h.connectionService
+	// Framework queueService is excluded as it is not a sibling domain service.
+	if !isCallFun && strings.HasSuffix(name, "Service") && !strings.HasPrefix(name, "Get") && name != "queueService" && name != "QueueService" {
 		v.addViolation(
 			v.fset.Position(sel.Pos()),
 			"Sibling Services",
 			"Injected sibling services must be stored in unexported acronym fields (e.g. 's.cs') on service structs or accessed via getter methods (e.g. 'GetCreditService()'); direct struct field access to service full names is forbidden.",
 			fmt.Sprintf("Direct struct field access to service '%s' is forbidden.", name),
-			fmt.Sprintf("Call getter method 'Get%s()' or inject via constructor NewService(...).", name),
+			fmt.Sprintf("Store the service in an unexported acronym field (e.g. 'cs') or call getter method 'Get%s()'.", name),
 		)
 		return
 	}

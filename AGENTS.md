@@ -27,6 +27,7 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 | **Service Struct**   | `repo ports.UserRepository` or `userRepo ...`   | `repository ports.UserRepository` (exact word: `repository`) |
 | **Sibling Services** | `userService ports.UserService`                 | `us ports.UserService` (strict lowercase acronym)            |
 | **Sibling Services** | `creditService ports.CreditService`             | `cs ports.CreditService`                                     |
+| **Handler Services** | `connectionService ports.BotConnectionService` | `bcs ports.BotConnectionService` (strict lowercase acronym)  |
 | **Service Fields**   | `AccountService ...` (exported / full name)     | `gas ...` (unexported lowercase acronym across all structs)  |
 | **Repo Fields**      | `ConnectionRepository ...` (exported on struct) | Unexported field or accessed via `GetConnectionRepository()` |
 | **Dependencies**     | `s.deps.GetConnectionRepo()`                    | `s.deps.GetConnectionRepository()` (never abbreviate)        |
@@ -116,7 +117,8 @@ type Service struct {
   - `ports.GameAccountService` → `gas`
   - `ports.AaBbCcService` (3+ words) → `abcs`
 
-- Across all structs in `internal/` (including dependency structs like `Deps`, runners, supervisors), service fields MUST be unexported lowercase acronyms of their interface type (`cs`, `gas`, `us`). Never export service interface fields (`AccountService`, `CreditService`).
+- Across all structs in `internal/` (including handlers like `ConnectionHandler`, dependency structs like `Deps`, runners, supervisors), service fields MUST be unexported lowercase acronyms of their interface type (`cs`, `gas`, `us`, `bcs`, `es`). Never export service interface fields (`AccountService`, `CreditService`), never use full service names (`connectionService`, `userService`), and never access services directly by full names (`h.connectionService`, `s.deps.CreditService`).
+- If a struct or dependency is used only within the same directory, unexported fields are fine; if it needs to be exported across package boundaries, it MUST be exposed through an interface in `internal/ports` or accessed via full-word getter methods (`GetConnectionRepository()`)—zero direct struct field access across package boundaries.
 - Repository fields on dependency structs or other structs must be unexported (e.g. `connectionRepository` or `bcr`). Never access repository fields directly across boundaries; always expose and call getter methods (`GetConnectionRepository()`).
 - In `NewService(...)` constructors, the primary repository parameter must be named `repository`, and sibling service parameters must use lowercase acronyms (`cs`, `us`, `as`).
 - Injected services are never nil. Never write nil checks (`if s.us != nil`). Inject all dependencies unconditionally
@@ -330,8 +332,7 @@ Execute this checklist before reporting any task complete:
 - [ ] **Verification:** Ran `make verify` (or `hexag verify`) and confirmed zero rule violations (exit code 0).
 - [ ] **File Names:** Every file is single-word lowercase (`service.go`, `handler.go`, `repository.go`), with kebab-case
   reserved solely for sibling disambiguation (including test files: `live-party_test.go`, never `live_party_test.go`).
-- [ ] **Service Fields:** Primary repository is named `repository`. Sibling services are named using lowercase acronyms
-  (`us`, `cs`, `bcs`, `gas`) and are unexported across all structs in `internal/`.
+- [ ] **Service Fields:** Primary repository is named `repository`. Sibling services and handler service fields are named using lowercase acronyms (`us`, `cs`, `bcs`, `gas`, `es`) and are unexported across all structs in `internal/`.
 - [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations or direct field accesses).
 - [ ] **Collections:** All collections use `ports.<Entity>Model{}.CollectionName()` (never hardcoded strings or plural
   names).

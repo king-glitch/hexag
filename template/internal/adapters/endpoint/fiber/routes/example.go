@@ -10,11 +10,11 @@ import (
 )
 
 type ExampleHandler struct {
-	service ports.ExampleService
+	es ports.ExampleService
 }
 
-func NewExampleHandler(service ports.ExampleService) ExampleHandler {
-	return ExampleHandler{service: service}
+func NewExampleHandler(es ports.ExampleService) ExampleHandler {
+	return ExampleHandler{es: es}
 }
 
 func (h ExampleHandler) Register(router fiber.Router) {
@@ -32,7 +32,7 @@ func (h ExampleHandler) Get(c fiber.Ctx) error {
 		return errors.Wrap(err, "invalid example id")
 	}
 
-	example, serr := h.service.Get(c.RequestCtx(), id)
+	example, serr := h.es.Get(c.RequestCtx(), id)
 	if serr != nil {
 		return serr
 	}
@@ -56,7 +56,7 @@ func (h ExampleHandler) Create(c fiber.Ctx) error {
 		return errors.Wrap(err, "failed to bind request")
 	}
 
-	example, serr := h.service.Create(c.RequestCtx(), req.Name, at)
+	example, serr := h.es.Create(c.RequestCtx(), req.Name, at)
 	if serr != nil {
 		return serr
 	}
