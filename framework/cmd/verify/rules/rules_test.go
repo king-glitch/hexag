@@ -532,10 +532,10 @@ func TestVerifier_DependencyNilChecksAndErrorSuppression(t *testing.T) {
 	adapterDir := filepath.Join(tmpDir, "internal", "adapters", "game", "runtime")
 	require.NoError(t, os.MkdirAll(adapterDir, 0755))
 
-	// Invalid code violating all three rules:
+	// Invalid code violating two rules:
 	// 1. Nil check on injected repository: 'if t.brr != nil'
-	// 2. Calling time.Now() in internal package
-	// 3. Discarding errors on dependency calls: '_ = t.brr.UpdateStats(...)', '_ = t.brr.MarkEnded(...)'
+	// 2. Discarding errors on dependency calls: '_ = t.brr.UpdateStats(...)', '_ = t.brr.MarkEnded(...)'
+	// Note: time.Now() in adapters is legitimate (background work = transport boundary)
 	invalidContent := `package runtime
 
 import (
@@ -566,23 +566,19 @@ func (t *taskSlot) Teardown(ctx context.Context, id bson.ObjectID) {
 	require.NoError(t, err)
 
 	violations := verifier.Violations()
-	require.Len(t, violations, 4)
+	require.Len(t, violations, 3)
 
 	// Violation 1: Nil check on t.brr
 	assert.Equal(t, "Dependencies", violations[0].Category)
 	assert.Contains(t, violations[0].Description, "t.brr")
 
-	// Violation 2: Calling time.Now()
-	assert.Equal(t, "Time Handling", violations[1].Category)
-	assert.Contains(t, violations[1].Description, "time.Now()")
+	// Violation 2: Discarding UpdateStats error
+	assert.Equal(t, "Errors", violations[1].Category)
+	assert.Contains(t, violations[1].Description, "t.brr.UpdateStats(...)")
 
-	// Violation 3: Discarding UpdateStats error
+	// Violation 3: Discarding MarkEnded error
 	assert.Equal(t, "Errors", violations[2].Category)
-	assert.Contains(t, violations[2].Description, "t.brr.UpdateStats(...)")
-
-	// Violation 4: Discarding MarkEnded error
-	assert.Equal(t, "Errors", violations[3].Category)
-	assert.Contains(t, violations[3].Description, "t.brr.MarkEnded(...)")
+	assert.Contains(t, violations[2].Description, "t.brr.MarkEnded(...)")
 }
 
 func TestVerifier_ExplicitErrorSuppression(t *testing.T) {

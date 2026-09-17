@@ -631,15 +631,17 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isInternal, isServiceDir, isEndpointDir, isDatabaseDir bool, importedPackages map[string]bool) {
 	pos := v.fset.Position(call.Pos())
 
-	// Check time.Now() in internal packages
-	if isInternal {
+	// Check time.Now() in services and endpoint handlers.
+	// Adapters doing background work (runtime goroutines, queue workers, supervisors)
+	// are transport boundaries where time.Now() is legitimate.
+	if isServiceDir || isEndpointDir {
 		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "time" && sel.Sel.Name == "Now" {
 				v.addViolation(
 					pos,
 					"Time Handling",
-					"Capture request time once (e.g. 'at := hextransport.RequestTime(c)') and pass 'at time.Time' through; never invoke time.Now() in internal packages.",
-					"Calling time.Now() in internal packages is forbidden.",
+					"Capture request time once via 'at := hextransport.RequestTime(c)' and pass 'at' through; never invoke time.Now() in services or handlers.",
+					"Calling time.Now() in services or HTTP handlers is forbidden.",
 					"Pass 'at time.Time' as a parameter. In HTTP handlers, capture once via 'at := hextransport.RequestTime(c)'.",
 				)
 			}
