@@ -67,11 +67,19 @@ func main() {
 
 	violations := verifier.Violations()
 	if len(violations) > 0 {
-		fmt.Fprintf(os.Stderr, "\n❌ Verification failed with %d violation(s):\n\n", len(violations))
-		for i, v := range violations {
-			fmt.Fprintf(os.Stderr, "%d) %s\n", i+1, v.String())
+		fileSet := make(map[string]struct{})
+		for _, v := range violations {
+			if v.Pos.Filename != "" {
+				fileSet[v.Pos.Filename] = struct{}{}
+			}
 		}
-		fmt.Fprintln(os.Stderr, "\nRun 'make verify' or 'hexag verify' again after fixing violations.")
+
+		fmt.Fprintf(os.Stderr, "\n❌ Verification failed: %d violation(s) found across %d file(s).\n\n", len(violations), len(fileSet))
+		for i, v := range violations {
+			fmt.Fprintln(os.Stderr, v.Format(i+1, len(violations)))
+		}
+		fmt.Fprintf(os.Stderr, "💡 Summary: %d violation(s) found across %d file(s).\n", len(violations), len(fileSet))
+		fmt.Fprintln(os.Stderr, "Please fix the violations above and run 'make verify' (or 'hexag verify') again.")
 		os.Exit(1)
 	}
 

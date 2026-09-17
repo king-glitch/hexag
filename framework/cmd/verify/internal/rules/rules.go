@@ -16,6 +16,7 @@ import (
 type Violation struct {
 	Pos         token.Position
 	Category    string
+	Contract    string
 	Description string
 	Suggestion  string
 }
@@ -28,6 +29,22 @@ func (v Violation) String() string {
 	sb.WriteString(fmt.Sprintf("[%s] %s", v.Category, v.Description))
 	if v.Suggestion != "" {
 		sb.WriteString(fmt.Sprintf(" (Fix: %s)", v.Suggestion))
+	}
+	return sb.String()
+}
+
+func (v Violation) Format(index, total int) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[%d/%d] ❌ AGENTS.md Rule Violation: %s\n", index, total, v.Category))
+	if v.Pos.IsValid() && v.Pos.Filename != "" {
+		sb.WriteString(fmt.Sprintf("    Location: %s:%d:%d\n", v.Pos.Filename, v.Pos.Line, v.Pos.Column))
+	}
+	if v.Contract != "" {
+		sb.WriteString(fmt.Sprintf("    Contract: %s\n", v.Contract))
+	}
+	sb.WriteString(fmt.Sprintf("    Problem:  %s\n", v.Description))
+	if v.Suggestion != "" {
+		sb.WriteString(fmt.Sprintf("    Fix:      %s\n", v.Suggestion))
 	}
 	return sb.String()
 }
@@ -52,10 +69,11 @@ func (v *Verifier) FileCount() int {
 	return v.fileCount
 }
 
-func (v *Verifier) addViolation(pos token.Position, category, desc, suggestion string) {
+func (v *Verifier) addViolation(pos token.Position, category, contract, desc, suggestion string) {
 	v.violations = append(v.violations, Violation{
 		Pos:         pos,
 		Category:    category,
+		Contract:    contract,
 		Description: desc,
 		Suggestion:  suggestion,
 	})
@@ -112,13 +130,25 @@ func (v *Verifier) checkFile(filePath string) {
 	// Parse file AST
 	src, err := os.ReadFile(filePath)
 	if err != nil {
-		v.addViolation(token.Position{Filename: filePath}, "Parser", fmt.Sprintf("Failed to read file: %v", err), "")
+		v.addViolation(
+			token.Position{Filename: filePath},
+			"Parser",
+			"Source files must be readable Go code.",
+			fmt.Sprintf("Failed to read file: %v", err),
+			"Ensure file exists and has read permissions.",
+		)
 		return
 	}
 
 	fileNode, err := parser.ParseFile(v.fset, filePath, src, parser.ParseComments)
 	if err != nil {
-		v.addViolation(token.Position{Filename: filePath}, "Parser", fmt.Sprintf("Failed to parse Go file: %v", err), "")
+		v.addViolation(
+			token.Position{Filename: filePath},
+			"Parser",
+			"Source files must compile and be valid Go syntax.",
+			fmt.Sprintf("Failed to parse Go file: %v", err),
+			"Fix syntax errors so AST parser can parse the file.",
+		)
 		return
 	}
 
@@ -157,31 +187,48 @@ func (v *Verifier) checkFileName(filePath, baseName string, isTestFile bool) {
 
 	// Rule: No uppercase characters in filename
 	if baseName != strings.ToLower(baseName) {
-		v.addViolation(pos, "File Names",
+		v.addViolation(
+			pos,
+			"File Names",
+			"Filenames must be single-word lowercase.",
 			fmt.Sprintf("Filename '%s' contains uppercase characters.", baseName),
-			"Use lowercase single-word filename.")
+			fmt.Sprintf("Rename to lowercase '%s'.", strings.ToLower(baseName)),
+		)
 	}
 
 	// Rule: No underscores unless it's a test file (*_test.go)
 	if !isTestFile && strings.Contains(baseName, "_") {
-		v.addViolation(pos, "File Names",
+		kebab := strings.ReplaceAll(baseName, "_", "-")
+		v.addViolation(
+			pos,
+			"File Names",
+			"Single-word lowercase filenames. The directory provides the contextual scope.",
 			fmt.Sprintf("Filename '%s' contains forbidden underscore.", baseName),
-			"Use single-word lowercase filename (e.g. 'service.go', 'handler.go', 'repository.go').")
+			fmt.Sprintf("Rename to single-word lowercase (e.g. 'service.go', 'handler.go') or sibling kebab-case ('%s').", kebab),
+		)
 	}
 
 	// Rule: Banned kebab-case with role suffixes
 	rolePattern := regexp.MustCompile(`-(service|handler|repository|repo|rules|model|models)\.go$`)
 	if rolePattern.MatchString(baseName) {
-		v.addViolation(pos, "File Names",
+		v.addViolation(
+			pos,
+			"File Names",
+			"The directory provides the contextual scope. Role files must be single-word lowercase.",
 			fmt.Sprintf("Filename '%s' uses banned kebab-case with role suffix.", baseName),
-			"Directory provides contextual scope; use role name directly (e.g. 'service.go', 'handler.go').")
+			"Remove the domain prefix and name by role directly (e.g. 'service.go', 'handler.go', 'repository.go').",
+		)
 	}
 
 	// Rule: Banned repo abbreviation in filename
 	if strings.HasSuffix(baseName, "repo.go") {
-		v.addViolation(pos, "File Names",
+		v.addViolation(
+			pos,
+			"File Names",
+			"Use full words for role files; abbreviations like 'repo' are forbidden.",
 			fmt.Sprintf("Filename '%s' uses forbidden abbreviation 'repo'.", baseName),
-			"Use full word 'repository.go'.")
+			"Rename to 'repository.go'.",
+		)
 	}
 }
 
@@ -240,9 +287,13 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 
 			// Check for TransactionRunner stored on service struct
 			if strings.Contains(typeStr, "TransactionRunner") {
-				v.addViolation(pos, "Tx Runner",
+				v.addViolation(
+					pos,
+					"Tx Runner",
+					"Never store TransactionRunner as a field on service structs.",
 					"Storing TransactionRunner as a field on service struct is forbidden.",
-					"Call s.GetTransactionRunner().Run(...) via embedded ServiceBase.")
+					"Remove field and call 's.GetTransactionRunner().Run(ctx, func(txCtx context.Context) error { ... })' via embedded ServiceBase.",
+				)
 			}
 
 			// Check if field is a repository
@@ -250,9 +301,13 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 				repoFields++
 				for _, name := range field.Names {
 					if name.Name != "repository" {
-						v.addViolation(v.fset.Position(name.Pos()), "Service Struct",
-							fmt.Sprintf("Primary repository field must be named 'repository', found '%s'.", name.Name),
-							"Rename field to 'repository'.")
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Service Struct",
+							"In service structs, the service's primary repository field MUST be named 'repository'.",
+							fmt.Sprintf("Primary repository field is named '%s' instead of 'repository'.", name.Name),
+							fmt.Sprintf("Rename struct field '%s' to 'repository %s'.", name.Name, typeStr),
+						)
 					}
 				}
 			}
@@ -262,28 +317,39 @@ func (v *Verifier) checkTypeSpec(filePath string, ts *ast.TypeSpec, isServiceDir
 				expectedAcronym := computeAcronym(typeStr)
 				for _, name := range field.Names {
 					if name.Name != expectedAcronym {
-						v.addViolation(v.fset.Position(name.Pos()), "Sibling Services",
-							fmt.Sprintf("Sibling service field '%s' of type '%s' must be named with lowercase acronym '%s'.",
-								name.Name, typeStr, expectedAcronym),
-							fmt.Sprintf("Rename field to '%s'.", expectedAcronym))
+						v.addViolation(
+							v.fset.Position(name.Pos()),
+							"Sibling Services",
+							"Injected sibling services MUST be named by strict lowercase acronyms of their interface type.",
+							fmt.Sprintf("Sibling service field '%s' of type '%s' does not use expected acronym '%s'.", name.Name, typeStr, expectedAcronym),
+							fmt.Sprintf("Rename struct field '%s' to '%s %s'.", name.Name, expectedAcronym, typeStr),
+						)
 					}
 				}
 			}
 		}
 
 		if repoFields > 1 {
-			v.addViolation(pos, "Service Struct",
-				"Service struct holds multiple repository interfaces. Services must only hold their own repository.",
-				"Inject sibling services instead of foreign repositories.")
+			v.addViolation(
+				pos,
+				"Service Struct",
+				"A service must ONLY hold its own repository. Sibling domains must be accessed strictly through their service interface.",
+				"Service struct holds multiple repository interfaces.",
+				"Remove foreign repositories. Inject sibling service interfaces instead.",
+			)
 		}
 	}
 
 	// Check Empty Response Structs in endpoint handlers
 	if isEndpointDir && strings.HasSuffix(ts.Name.Name, "Response") {
 		if len(st.Fields.List) == 0 {
-			v.addViolation(pos, "HTTP Handlers",
-				fmt.Sprintf("Empty response struct '%s' is forbidden.", ts.Name.Name),
-				"Handlers returning no data must return hextransport.NewSuccessResponse().ToJSON(c) without arguments.")
+			v.addViolation(
+				pos,
+				"HTTP Handlers",
+				"Handlers returning no data return hextransport.NewSuccessResponse().ToJSON(c) without arguments; never define empty response structs.",
+				fmt.Sprintf("Empty response struct '%s' with 0 fields is forbidden.", ts.Name.Name),
+				fmt.Sprintf("Delete struct '%s' and return 'hextransport.NewSuccessResponse().ToJSON(c)' without arguments in handler.", ts.Name.Name),
+			)
 		}
 	}
 }
@@ -297,18 +363,26 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 		for _, param := range fn.Type.Params.List {
 			typeStr := formatTypeExpr(param.Type)
 			if strings.Contains(typeStr, "TransactionRunner") {
-				v.addViolation(pos, "Tx Runner",
-					"Passing TransactionRunner to service constructor is forbidden.",
-					"TransactionRunner is provided via ServiceContext.")
+				v.addViolation(
+					pos,
+					"Tx Runner",
+					"Never pass TransactionRunner directly through service constructors; access it via ServiceContext/ServiceBase.",
+					"Passing TransactionRunner to NewService constructor is forbidden.",
+					"Remove TransactionRunner parameter from NewService(...); call s.GetTransactionRunner().Run(...) via base service.",
+				)
 			}
 			if isRepositoryType(typeStr) {
 				repoCount++
 			}
 		}
 		if repoCount > 1 {
-			v.addViolation(pos, "Service Struct",
-				"Injecting foreign repositories into service constructor is forbidden.",
-				"Inject sibling services instead.")
+			v.addViolation(
+				pos,
+				"Service Struct",
+				"A service must ONLY hold its own repository. Never inject another service's repository directly.",
+				"Injecting foreign repositories into NewService constructor is forbidden.",
+				"Inject the sibling service interface instead of another domain's repository.",
+			)
 		}
 	}
 
@@ -316,9 +390,13 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 	if isServiceDir && fn.Recv != nil && len(fn.Recv.List) > 0 {
 		recvType := formatTypeExpr(fn.Recv.List[0].Type)
 		if strings.Contains(recvType, "Service") && strings.HasPrefix(fn.Name.Name, "With") {
-			v.addViolation(pos, "Service Struct",
-				fmt.Sprintf("Setter injection method '%s' is forbidden.", fn.Name.Name),
-				"Inject all dependencies via constructor; cyclic dependencies are strictly prohibited.")
+			v.addViolation(
+				pos,
+				"Service Struct",
+				"Cyclic dependencies and setter injection workarounds (With...) are strictly prohibited.",
+				fmt.Sprintf("Setter injection method '%s' is forbidden on service struct.", fn.Name.Name),
+				"Inject all dependencies via constructor NewService(...). Extract shared logic into an orchestrator service if needed.",
+			)
 		}
 	}
 
@@ -331,9 +409,14 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 				paramType := formatTypeExpr(param.Type)
 				if strings.Contains(paramType, "Ctx") {
 					if !ast.IsExported(fn.Name.Name) && fn.Name.Name != "Register" {
-						v.addViolation(pos, "HTTP Handlers",
-							fmt.Sprintf("Handler method '%s' must be exported.", fn.Name.Name),
-							"Capitalize the method name (e.g. 'Get', 'Create').")
+						exportedName := deriveExportedName(fn.Name.Name)
+						v.addViolation(
+							pos,
+							"HTTP Handlers",
+							"All handler methods MUST be exported with capitalized names: (h <Service>Handler) <MethodName>(c fiber.Ctx) error.",
+							fmt.Sprintf("Handler method '%s' is unexported (starts with lowercase).", fn.Name.Name),
+							fmt.Sprintf("Capitalize the method name: change '%s' to '%s(c fiber.Ctx) error'.", fn.Name.Name, exportedName),
+						)
 					}
 					break
 				}
@@ -354,9 +437,13 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 			}
 			name := strings.Trim(lit.Value, `"`)
 			if isPluralCollection(name) {
-				v.addViolation(pos, "Collections",
+				v.addViolation(
+					pos,
+					"Collections",
+					"Mongo collection names are singular snake_case (e.g. 'user', 'subscription_tier').",
 					fmt.Sprintf("Collection name '%s' appears to be plural.", name),
-					"Collection names must be singular snake_case (e.g. 'user', not 'users').")
+					fmt.Sprintf("Change collection name to singular snake_case (e.g. '%s').", strings.TrimSuffix(name, "s")),
+				)
 			}
 		}
 	}
@@ -369,9 +456,13 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 	if (isServiceDir || isEndpointDir) && !isTestFile {
 		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "time" && sel.Sel.Name == "Now" {
-				v.addViolation(pos, "Time Handling",
-					"Calling time.Now() in services/handlers is forbidden.",
-					"Capture once via hextransport.RequestTime(c) and pass 'at time.Time' through.")
+				v.addViolation(
+					pos,
+					"Time Handling",
+					"Capture request time once via 'at := hextransport.RequestTime(c)' and pass 'at' through; never invoke time.Now() in services/handlers.",
+					"Calling time.Now() in services or HTTP handlers is forbidden.",
+					"Pass 'at time.Time' as a parameter. In HTTP handlers, capture once via 'at := hextransport.RequestTime(c)'.",
+				)
 			}
 		}
 	}
@@ -379,9 +470,13 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 	// Check c.Query(...) in endpoint handlers
 	if isEndpointDir {
 		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Query" {
-			v.addViolation(pos, "HTTP Queries",
+			v.addViolation(
+				pos,
+				"HTTP Queries",
+				"Bind request DTOs via hextransport.Bind(c, &req) or hextransport.BindQuery(c, &req); never manually parse query parameters with c.Query().",
 				"Direct query parameter access with c.Query(...) is forbidden.",
-				"Bind query parameters via hextransport.BindQuery(c, &req).")
+				"Define a request query struct (with `query:\"...\"` tags) and bind via 'hextransport.BindQuery(c, &req)'.",
+			)
 		}
 	}
 
@@ -389,9 +484,13 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 	if isDatabaseDir {
 		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Collection" && len(call.Args) > 0 {
 			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				v.addViolation(pos, "Collections",
-					fmt.Sprintf("Hardcoded collection name string %s is forbidden.", lit.Value),
-					"Always use ports.<Entity>Model{}.CollectionName().")
+				v.addViolation(
+					pos,
+					"Collections",
+					"Always obtain collection names via ports.<Entity>Model{}.CollectionName(); never hardcode collection name strings.",
+					fmt.Sprintf("Hardcoded collection name string %s is forbidden in db.Collection(...).", lit.Value),
+					fmt.Sprintf("Replace %s with ports.<Entity>Model{}.CollectionName().", lit.Value),
+				)
 			}
 		}
 	}
@@ -400,9 +499,14 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 		name := sel.Sel.Name
 		if strings.HasPrefix(name, "Get") && strings.HasSuffix(name, "Repo") {
-			v.addViolation(pos, "Dependencies",
-				fmt.Sprintf("Abbreviated getter method '%s' is forbidden.", name),
-				fmt.Sprintf("Use full name '%ssitory()'.", name[:len(name)-4]))
+			correctGetter := deriveGetterName(name)
+			v.addViolation(
+				pos,
+				"Dependencies",
+				"Interface-based dependencies use full-word getter methods; never use shortened abbreviations (e.g. GetConnectionRepository(), not GetConnectionRepo()).",
+				fmt.Sprintf("Abbreviated getter method call '%s()' is forbidden.", name),
+				fmt.Sprintf("Call full method name '%s' instead.", correctGetter),
+			)
 		}
 	}
 }
@@ -420,21 +524,36 @@ func (v *Verifier) checkBinaryExpr(filePath string, bin *ast.BinaryExpr, isServi
 			if bin.Op == token.NEQ {
 				opStr = "!="
 			}
-			v.addViolation(pos, "Sentinels",
+			sentinel := getSentinelExpr(leftStr, rightStr)
+			v.addViolation(
+				pos,
+				"Sentinels",
+				"Compare sentinels only with errors.Is(err, ports.ErrX); never ==, !=, or switch err.",
 				fmt.Sprintf("Direct sentinel comparison '%s %s %s' is forbidden.", leftStr, opStr, rightStr),
-				fmt.Sprintf("Use errors.Is(err, %s).", getSentinelExpr(leftStr, rightStr)))
+				fmt.Sprintf("Replace direct comparison with 'errors.Is(err, %s)'.", sentinel),
+			)
 		}
 
 		// Check nil checks on injected sibling services: if s.us == nil
 		if isServiceDir {
 			if isNilExpr(bin.X) && isServiceSelector(bin.Y) {
-				v.addViolation(pos, "Sibling Services",
-					fmt.Sprintf("Nil check '%s' on injected service is forbidden.", exprToString(bin.Y)),
-					"Inject dependencies unconditionally; nil checks are forbidden.")
+				serviceExpr := exprToString(bin.Y)
+				v.addViolation(
+					pos,
+					"Sibling Services",
+					"Injected service interfaces are NEVER nil. Never write nil checks (if s.us != nil).",
+					fmt.Sprintf("Nil check on injected sibling service '%s' is forbidden.", serviceExpr),
+					fmt.Sprintf("Remove nil check guard on '%s'. Dependencies are guaranteed non-nil via constructor NewService(...).", serviceExpr),
+				)
 			} else if isNilExpr(bin.Y) && isServiceSelector(bin.X) {
-				v.addViolation(pos, "Sibling Services",
-					fmt.Sprintf("Nil check '%s' on injected service is forbidden.", exprToString(bin.X)),
-					"Inject dependencies unconditionally; nil checks are forbidden.")
+				serviceExpr := exprToString(bin.X)
+				v.addViolation(
+					pos,
+					"Sibling Services",
+					"Injected service interfaces are NEVER nil. Never write nil checks (if s.us != nil).",
+					fmt.Sprintf("Nil check on injected sibling service '%s' is forbidden.", serviceExpr),
+					fmt.Sprintf("Remove nil check guard on '%s'. Dependencies are guaranteed non-nil via constructor NewService(...).", serviceExpr),
+				)
 			}
 		}
 	}
@@ -451,9 +570,13 @@ func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt) {
 				for _, expr := range cc.List {
 					exprStr := exprToString(expr)
 					if isErrSentinel(exprStr) {
-						v.addViolation(v.fset.Position(expr.Pos()), "Sentinels",
+						v.addViolation(
+							v.fset.Position(expr.Pos()),
+							"Sentinels",
+							"Compare sentinels only with errors.Is(err, ports.ErrX); never switch err.",
 							fmt.Sprintf("Switch case on error sentinel '%s' is forbidden.", exprStr),
-							"Use errors.Is(err, ...) instead of switch.")
+							fmt.Sprintf("Replace switch with 'if errors.Is(err, %s)' checks.", exprStr),
+						)
 					}
 				}
 			}
@@ -467,9 +590,14 @@ func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr) {
 	if strings.HasSuffix(name, "Repo") && name != "repo" && !strings.HasPrefix(name, "Get") {
 		// Ignore package selectors like repo.SomeFunc
 		if _, isIdent := sel.X.(*ast.Ident); !isIdent {
-			v.addViolation(v.fset.Position(sel.Pos()), "Dependencies",
+			correctGetter := deriveGetterName(name)
+			v.addViolation(
+				v.fset.Position(sel.Pos()),
+				"Dependencies",
+				"Interface-based dependencies use full-word getter methods; direct struct field accesses or abbreviations like '*Repo' are forbidden.",
 				fmt.Sprintf("Direct field access or abbreviated name '%s' is forbidden.", name),
-				"Use full getter method like 'GetConnectionRepository()'.")
+				fmt.Sprintf("Call getter method '%s' instead of accessing field '%s'.", correctGetter, name),
+			)
 		}
 	}
 }
@@ -478,14 +606,38 @@ func (v *Verifier) checkValueSpec(filePath string, vs *ast.ValueSpec) {
 	// Check for CollectionName = "..." constant or variable
 	for _, name := range vs.Names {
 		if name.Name == "CollectionName" {
-			v.addViolation(v.fset.Position(name.Pos()), "Collections",
-				"Defining 'CollectionName' as a string constant/variable is forbidden.",
-				"Implement CollectionName() string on ports.<Entity>Model.")
+			v.addViolation(
+				v.fset.Position(name.Pos()),
+				"Collections",
+				"Collection names must be obtained from model's CollectionName() method, not string constants.",
+				"Defining 'CollectionName' as a string constant or variable is forbidden.",
+				"Implement 'func (m <Entity>Model) CollectionName() string' on the model struct.",
+			)
 		}
 	}
 }
 
 // Helpers
+
+func deriveGetterName(name string) string {
+	if strings.HasPrefix(name, "Get") && strings.HasSuffix(name, "Repo") {
+		return name[:len(name)-4] + "Repository()"
+	}
+	if strings.HasSuffix(name, "Repo") {
+		base := strings.TrimSuffix(name, "Repo")
+		return "Get" + base + "Repository()"
+	}
+	return "Get" + name + "()"
+}
+
+func deriveExportedName(name string) string {
+	if name == "" {
+		return ""
+	}
+	r := []rune(name)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
 
 func formatTypeExpr(expr ast.Expr) string {
 	switch t := expr.(type) {
