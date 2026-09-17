@@ -300,45 +300,20 @@ type CreateUserRequest struct {
 	assert.Contains(t, violations[0].Description, "oneof=")
 }
 
-func TestVerifier_TestFileNaming(t *testing.T) {
+func TestVerifier_TestFileExclusion(t *testing.T) {
 	tmpDir := t.TempDir()
 	pkgDir := filepath.Join(tmpDir, "internal", "services", "user")
 	require.NoError(t, os.MkdirAll(pkgDir, 0755))
 
-	// 1. Underscore in test file prefix: live_party_test.go -> violation!
-	badTest1 := filepath.Join(pkgDir, "live_party_test.go")
-	require.NoError(t, os.WriteFile(badTest1, []byte("package user\n"), 0644))
-
-	// 2. Banned role suffix in test file: user-service_test.go -> violation!
-	badTest2 := filepath.Join(pkgDir, "user-service_test.go")
-	require.NoError(t, os.WriteFile(badTest2, []byte("package user\n"), 0644))
-
-	// 3. Banned abbreviation in test file: repo_test.go -> violation!
-	badTest3 := filepath.Join(pkgDir, "repo_test.go")
-	require.NoError(t, os.WriteFile(badTest3, []byte("package user\n"), 0644))
-
-	// 4. Allowed kebab-case sibling test file: live-party_test.go -> ok!
-	goodTest1 := filepath.Join(pkgDir, "live-party_test.go")
-	require.NoError(t, os.WriteFile(goodTest1, []byte("package user\n"), 0644))
-
-	// 5. Allowed role test file: service_test.go -> ok!
-	goodTest2 := filepath.Join(pkgDir, "service_test.go")
-	require.NoError(t, os.WriteFile(goodTest2, []byte("package user\n"), 0644))
+	// Test files (ending in _test.go) are excluded from verification
+	testFile := filepath.Join(pkgDir, "live_party_test.go")
+	require.NoError(t, os.WriteFile(testFile, []byte("package user\n"), 0644))
 
 	verifier := NewVerifier()
 	err := verifier.VerifyPath(tmpDir)
 	require.NoError(t, err)
 
-	violations := verifier.Violations()
-	require.Len(t, violations, 3)
-	descJoined := ""
-	for _, v := range violations {
-		assert.Equal(t, "File Names", v.Category)
-		descJoined += v.Description + " "
-	}
-	assert.Contains(t, descJoined, "live_party_test.go")
-	assert.Contains(t, descJoined, "user-service_test.go")
-	assert.Contains(t, descJoined, "repo_test.go")
+	assert.Empty(t, verifier.Violations(), "test files should be excluded from verification")
 }
 
 func TestVerifier_DepsStructAndFieldAccess(t *testing.T) {

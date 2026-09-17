@@ -23,7 +23,6 @@ AI agents frequently drift toward generic Go idioms. The following violations wi
 |----------------------|-------------------------------------------------|--------------------------------------------------------------|
 | **File Names**       | `user_service.go`, `create_user.go`             | `service.go`, `user.go` (single-word lowercase)              |
 | **File Names**       | `user-handler.go`, `user_repo.go`               | `handler.go`, `repository.go`                                |
-| **Test Files**       | `live_party_test.go` (underscores in prefix)    | `live-party_test.go` (kebab-case sibling test files)         |
 | **Service Struct**   | `repo ports.UserRepository` or `userRepo ...`   | `repository ports.UserRepository` (exact word: `repository`) |
 | **Sibling Services** | `userService ports.UserService`                 | `us ports.UserService` (strict lowercase acronym)            |
 | **Sibling Services** | `creditService ports.CreditService`             | `cs ports.CreditService`                                     |
@@ -78,8 +77,6 @@ services -> core + project ports
   role.
   - Allowed: `rule-billing.go` vs `rule-trial.go`
   - Banned: `user-service.go`, `create-user-handler.go`, `user_repo.go`
-
-- **Test files:** Follow the same rule with `_test.go` suffix. The prefix before `_test.go` must be single-word lowercase (`service_test.go`, `handler_test.go`) or kebab-case for sibling disambiguation (`live-party_test.go`, `rule-billing_test.go`). Underscores in the prefix (e.g. `live_party_test.go`) are strictly forbidden.
 
 - **Route segments:** kebab-case: `/api/v1/{service}/{resource-or-action}`.
 - **Mongo collections:** Singular snake_case (`user`, `subscription_tier`).
@@ -331,7 +328,7 @@ Execute this checklist before reporting any task complete:
 
 - [ ] **Verification:** Ran `make verify` (or `hexag verify`) and confirmed zero rule violations (exit code 0).
 - [ ] **File Names:** Every file is single-word lowercase (`service.go`, `handler.go`, `repository.go`), with kebab-case
-  reserved solely for sibling disambiguation (including test files: `live-party_test.go`, never `live_party_test.go`).
+  reserved solely for sibling disambiguation.
 - [ ] **Service Fields:** Primary repository is named `repository`. Sibling services and handler service fields are named using lowercase acronyms (`us`, `cs`, `bcs`, `gas`, `es`) and are unexported across all structs in `internal/`.
 - [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations or direct field accesses).
 - [ ] **Collections:** All collections use `ports.<Entity>Model{}.CollectionName()` (never hardcoded strings or plural
