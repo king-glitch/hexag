@@ -340,7 +340,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 			v.checkSwitchStmt(filePath, node)
 
 		case *ast.SelectorExpr:
-			v.checkSelectorExpr(filePath, node, importedPackages, callFunMap[node])
+			v.checkSelectorExpr(filePath, node, importedPackages, callFunMap[node], isTestFile)
 
 		case *ast.ValueSpec:
 			v.checkValueSpec(filePath, node)
@@ -786,7 +786,12 @@ func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt) {
 	}
 }
 
-func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, importedPackages map[string]bool, isCallFun bool) {
+func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, importedPackages map[string]bool, isCallFun, isTestFile bool) {
+	// Selector checks apply to production code, not unit test fixtures
+	if isTestFile {
+		return
+	}
+
 	// Ignore package selectors like repo.SomeFunc, ports.UserRepository, time.Now
 	if ident, ok := sel.X.(*ast.Ident); ok && importedPackages[ident.Name] {
 		return
