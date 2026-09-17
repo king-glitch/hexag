@@ -80,12 +80,12 @@ echo "✓ updated $DEST_DIR/AGENTS.md"
 
 # 2. Update/ensure CLAUDE.md references @AGENTS.md
 if [ ! -f "$DEST_DIR/CLAUDE.md" ]; then
-  echo "@AGENTS.md" > "$DEST_DIR/CLAUDE.md"
+  printf "@AGENTS.md\n\nRun \`make verify\` before updating \`MEMORY.md\`. If it fails, fix the code immediately.\n" > "$DEST_DIR/CLAUDE.md"
   echo "✓ created $DEST_DIR/CLAUDE.md"
 else
   if ! grep -q "@AGENTS.md" "$DEST_DIR/CLAUDE.md"; then
     tmp_claude="$(mktemp)"
-    printf "@AGENTS.md\n\n%s\n" "$(cat "$DEST_DIR/CLAUDE.md")" > "$tmp_claude"
+    printf "@AGENTS.md\n\nRun \`make verify\` before updating \`MEMORY.md\`. If it fails, fix the code immediately.\n\n%s\n" "$(cat "$DEST_DIR/CLAUDE.md")" > "$tmp_claude"
     mv "$tmp_claude" "$DEST_DIR/CLAUDE.md"
     echo "✓ prepended @AGENTS.md to $DEST_DIR/CLAUDE.md"
   else

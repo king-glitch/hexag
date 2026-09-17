@@ -55,7 +55,7 @@ done
 
 echo "scaffolded $DEST_DIR"
 
-echo "@AGENTS.md" > "$DEST_DIR/CLAUDE.md"
+printf "@AGENTS.md\n\nRun \`make verify\` before updating \`MEMORY.md\`. If it fails, fix the code immediately.\n" > "$DEST_DIR/CLAUDE.md"
 
 echo "cp $DEST_DIR/.env.example $DEST_DIR/.env"
 cp "$DEST_DIR/.env.example" "$DEST_DIR/.env"

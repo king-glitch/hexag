@@ -23,6 +23,7 @@ A modular, zero-magic hexagonal architecture framework for Go 1.26+ services bac
   - [`framework/queue`](#frameworkqueue)
   - [`framework/cmd/mongogen`](#frameworkcmdmongogen)
   - [`framework/cmd/brunogen`](#frameworkcmdbrunogen)
+  - [`framework/cmd/verify`](#frameworkcmdverify)
 - [CLI & Scaffolding Tooling](#cli--scaffolding-tooling)
 - [End-to-End Feature Recipe](#end-to-end-feature-recipe)
 - [AI Agent Coding Standards](#ai-agent-coding-standards)
@@ -67,6 +68,7 @@ ServiceContext -> DB -> adapters -> services -> hexhttpx.New
 | `framework/queue` | MongoDB queue repository, queue service, item lifecycle, worker executor, and indexes |
 | `framework/cmd/mongogen` | AST-based MongoDB type-safe query field generation |
 | `framework/cmd/brunogen` | AST-based Bruno API client collection and Markdown API reference (`docs/API.md`) generation |
+| `framework/cmd/verify` | AST-based architecture, naming, and style rule verification (`hexag verify`, `make verify`) |
 
 ---
 
@@ -371,6 +373,24 @@ make bruno
 
 ---
 
+### `framework/cmd/verify`
+
+AST-based mechanical verification tool that audits Go source files against hexagonal architecture invariants, file naming conventions, service injection rules, sentinel error handling, and collection naming from `AGENTS.md`.
+
+Run via:
+```bash
+# In downstream projects:
+make verify
+
+# Or via hexag CLI:
+hexag verify
+
+# Direct execution:
+go run github.com/king-glitch/hexag/framework/cmd/verify
+```
+
+---
+
 ## CLI & Scaffolding Tooling
 
 The `hexag` CLI tool (`scripts/hexag` or symlinked `bin/hexag`) manages projects:
@@ -384,6 +404,9 @@ hexag update ~/dev/my-service --all
 
 # 3. Generate Bruno collections and docs/API.md
 hexag bruno
+
+# 4. Verify code against AGENTS.md rules
+hexag verify
 ```
 
 ---
