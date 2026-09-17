@@ -331,7 +331,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File, isTestFile bool) {
 			v.checkFuncDecl(filePath, node, isServiceDir, isEndpointDir, isPortsDomain)
 
 		case *ast.CallExpr:
-			v.checkCallExpr(filePath, node, isServiceDir, isEndpointDir, isDatabaseDir, isTestFile)
+			v.checkCallExpr(filePath, node, isServiceDir, isEndpointDir, isDatabaseDir, isTestFile, importedPackages)
 
 		case *ast.BinaryExpr:
 			v.checkBinaryExpr(filePath, node, isServiceDir)
@@ -640,7 +640,7 @@ func (v *Verifier) checkFuncDecl(filePath string, fn *ast.FuncDecl, isServiceDir
 	}
 }
 
-func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceDir, isEndpointDir, isDatabaseDir, isTestFile bool) {
+func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceDir, isEndpointDir, isDatabaseDir, isTestFile bool, importedPackages map[string]bool) {
 	pos := v.fset.Position(call.Pos())
 
 	// Check time.Now() in services or endpoints (not tests)
@@ -688,6 +688,9 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 
 	// Check abbreviated getter method calls (e.g. .GetConnectionRepo())
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok && importedPackages[ident.Name] {
+			return
+		}
 		name := sel.Sel.Name
 		if strings.HasPrefix(name, "Get") && strings.HasSuffix(name, "Repo") {
 			correctGetter := deriveGetterName(name)
@@ -698,7 +701,7 @@ func (v *Verifier) checkCallExpr(filePath string, call *ast.CallExpr, isServiceD
 				fmt.Sprintf("Abbreviated getter method call '%s()' is forbidden.", name),
 				fmt.Sprintf("Call full method name '%s' instead.", correctGetter),
 			)
-		} else if strings.HasSuffix(name, "Repository") && !strings.HasPrefix(name, "Get") {
+		} else if !isTestFile && strings.HasSuffix(name, "Repository") && !strings.HasPrefix(name, "Get") && !strings.HasPrefix(name, "New") {
 			v.addViolation(
 				pos,
 				"Dependencies",

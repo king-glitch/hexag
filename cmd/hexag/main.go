@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-const version = "v0.0.20"
+const version = "v0.0.22"
 
 func usage() {
 	fmt.Println("hexag — hexagonal architecture toolkit and AI agent verifier")
@@ -16,12 +16,13 @@ func usage() {
 	fmt.Println("  hexag <command> [arguments]")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  verify   Verify code adherence to strict AGENTS.md architecture & naming rules")
-	fmt.Println("  bruno    Generate Bruno API collections and Markdown API reference")
-	fmt.Println("  mongo    Generate Mongo fields and standalone models")
-	fmt.Println("  new      Scaffold a new hexagonal project from the official template")
-	fmt.Println("  update   Update AGENTS.md, CLAUDE.md, and configuration in an existing project")
-	fmt.Println("  version  Show hexag version")
+	fmt.Println("  verify      Verify code adherence to strict AGENTS.md architecture & naming rules")
+	fmt.Println("  bruno       Generate Bruno API collections and Markdown API reference")
+	fmt.Println("  mongo       Generate Mongo fields and standalone models")
+	fmt.Println("  new         Scaffold a new hexagonal project from the official template")
+	fmt.Println("  update      Update AGENTS.md, CLAUDE.md, and configuration in an existing project")
+	fmt.Println("  completion  Generate shell autocompletion script (zsh, bash)")
+	fmt.Println("  version     Show hexag version")
 	fmt.Println()
 	fmt.Println("Run 'hexag <command> --help' for details on a specific command.")
 }
@@ -47,6 +48,8 @@ func main() {
 		err = runNew(args)
 	case "update":
 		err = runUpdate(args)
+	case "completion":
+		err = runCompletion(args)
 	case "version", "-v", "--version":
 		fmt.Printf("hexag %s\n", version)
 		return
