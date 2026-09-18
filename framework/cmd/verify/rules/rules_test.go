@@ -1106,4 +1106,62 @@ const (
 	})
 }
 
+func TestVerifier_ExternalServiceFieldAndSelector(t *testing.T) {
+	t.Run("external package service in adapter struct is not flagged as sibling service", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "google-sheet")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package googlesheet
+
+import (
+	"google.golang.org/api/sheets/v4"
+)
+
+type Adapter struct {
+	s *sheets.Service
+}
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "adapter.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		siblingViolations := filterByCategory(verifier.Violations(), "Sibling Services")
+		assert.Empty(t, siblingViolations, "external *sheets.Service must not be flagged as a sibling service")
+	})
+}
+
+func TestVerifier_StructFieldNilComparisonNotSentinel(t *testing.T) {
+	t.Run("body.Response.Error != nil comparison is not flagged as sentinel", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		dir := filepath.Join(tmpDir, "internal", "adapters", "steam", "api")
+		require.NoError(t, os.MkdirAll(dir, 0755))
+
+		content := `package api
+
+type ResponseWrapper struct {
+	Response struct {
+		Error *string
+	}
+}
+
+func Check(body ResponseWrapper) bool {
+	if body.Response.Error != nil {
+		return false
+	}
+	return true
+}
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "client.go"), []byte(content), 0644))
+
+		verifier := NewVerifier()
+		require.NoError(t, verifier.VerifyPath(tmpDir))
+
+		sentinelViolations := filterByCategory(verifier.Violations(), "Sentinels")
+		assert.Empty(t, sentinelViolations, "body.Response.Error != nil must not be flagged as a sentinel comparison")
+	})
+}
+
+
 

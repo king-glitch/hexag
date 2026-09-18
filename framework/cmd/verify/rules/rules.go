@@ -277,11 +277,21 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 	}
 
 	callFunMap := make(map[*ast.SelectorExpr]bool)
+	typeExprMap := make(map[*ast.SelectorExpr]bool)
 	ast.Inspect(f, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		switch t := n.(type) {
+		case *ast.CallExpr:
+			if sel, ok := t.Fun.(*ast.SelectorExpr); ok {
 				callFunMap[sel] = true
 			}
+		case *ast.Field:
+			markTypeSelectors(t.Type, typeExprMap)
+		case *ast.TypeSpec:
+			markTypeSelectors(t.Type, typeExprMap)
+		case *ast.ValueSpec:
+			markTypeSelectors(t.Type, typeExprMap)
+		case *ast.TypeAssertExpr:
+			markTypeSelectors(t.Type, typeExprMap)
 		}
 		return true
 	})
@@ -314,7 +324,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 			v.checkSwitchStmt(filePath, node)
 
 		case *ast.SelectorExpr:
-			v.checkSelectorExpr(filePath, node, importedPackages, callFunMap[node])
+			v.checkSelectorExpr(filePath, node, importedPackages, callFunMap[node], typeExprMap[node])
 
 		case *ast.ValueSpec:
 			v.checkValueSpec(filePath, node)
@@ -996,7 +1006,7 @@ func (v *Verifier) checkBinaryExpr(filePath string, bin *ast.BinaryExpr, isInter
 		leftStr := exprToString(bin.X)
 		rightStr := exprToString(bin.Y)
 
-		if isErrSentinel(leftStr) || isErrSentinel(rightStr) {
+		if !isNilExpr(bin.X) && !isNilExpr(bin.Y) && (isErrSentinel(leftStr) || isErrSentinel(rightStr)) {
 			opStr := "=="
 			if bin.Op == token.NEQ {
 				opStr = "!="
@@ -1130,7 +1140,11 @@ func isDepsExpr(expr ast.Expr) bool {
 	}
 }
 
-func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, importedPackages map[string]bool, isCallFun bool) {
+func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, importedPackages map[string]bool, isCallFun bool, isTypeExpr bool) {
+	if isTypeExpr {
+		return
+	}
+
 	// Ignore package selectors like repo.SomeFunc, ports.UserRepository, time.Now
 	if ident, ok := sel.X.(*ast.Ident); ok && importedPackages[ident.Name] {
 		return
@@ -1177,7 +1191,7 @@ func (v *Verifier) checkSelectorExpr(filePath string, sel *ast.SelectorExpr, imp
 
 	// 3. Check direct struct field access to *Service (not called as a function): s.deps.CreditService, deps.AccountService, h.connectionService
 	// Framework queueService is excluded as it is not a sibling domain service.
-	if !isCallFun && strings.HasSuffix(name, "Service") && !strings.HasPrefix(name, "Get") && name != "queueService" && name != "QueueService" {
+	if !isCallFun && strings.HasSuffix(name, "Service") && !strings.HasPrefix(name, "Get") && name != "queueService" && name != "QueueService" && name != "Service" {
 		v.addViolation(
 			v.fset.Position(sel.Pos()),
 			"Sibling Services",
@@ -1292,17 +1306,53 @@ func formatTypeExpr(expr ast.Expr) string {
 	}
 }
 
+func markTypeSelectors(expr ast.Expr, m map[*ast.SelectorExpr]bool) {
+	if expr == nil {
+		return
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			m[sel] = true
+		}
+		return true
+	})
+}
+
 func isRepositoryType(typeStr string) bool {
-	return strings.HasSuffix(typeStr, "Repository") && !strings.Contains(typeStr, "QueueRepository")
+	clean := strings.TrimPrefix(typeStr, "*")
+	if !strings.HasSuffix(clean, "Repository") || strings.Contains(clean, "QueueRepository") {
+		return false
+	}
+	parts := strings.Split(clean, ".")
+	leaf := parts[len(parts)-1]
+	if leaf == "Repository" {
+		return false
+	}
+	if len(parts) > 1 {
+		return parts[0] == "ports"
+	}
+	return true
 }
 
 func isSiblingServiceType(typeStr string) bool {
 	if strings.HasPrefix(typeStr, "*") {
 		return false
 	}
-	return strings.HasSuffix(typeStr, "Service") &&
-		!strings.Contains(typeStr, "ServiceBase") &&
-		!strings.Contains(typeStr, "QueueService")
+	if !strings.HasSuffix(typeStr, "Service") ||
+		strings.Contains(typeStr, "ServiceBase") ||
+		strings.Contains(typeStr, "QueueService") {
+		return false
+	}
+	parts := strings.Split(typeStr, ".")
+	leaf := parts[len(parts)-1]
+	if leaf == "Service" {
+		return false
+	}
+	// If qualified with a package, sibling services MUST come from ports package (e.g. ports.UserService)
+	if len(parts) > 1 {
+		return parts[0] == "ports"
+	}
+	return true
 }
 
 func computeAcronym(typeStr string) string {
@@ -1330,6 +1380,11 @@ func isErrSentinel(str string) bool {
 		return true
 	}
 	if strings.Contains(str, ".Err") {
+		idx := strings.Index(str, ".Err")
+		after := str[idx+4:]
+		if after == "or" || strings.HasPrefix(after, "or.") {
+			return false
+		}
 		return true
 	}
 	return false
