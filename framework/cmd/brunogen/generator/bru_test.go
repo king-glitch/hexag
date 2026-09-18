@@ -232,8 +232,8 @@ post {
 	if !strings.Contains(equipStr, "character_id: {{CHARACTER_ID}}") {
 		t.Errorf("expected character_id: {{CHARACTER_ID}} in equip.bru, got:\n%s", equipStr)
 	}
-	if !strings.Contains(equipStr, "skill_id: {{SKILL_ID}}") {
-		t.Errorf("expected skill_id: {{SKILL_ID}} in equip.bru, got:\n%s", equipStr)
+	if !strings.Contains(equipStr, "skill_id: {{CHARACTER_SKILL_ID}}") {
+		t.Errorf("expected skill_id: {{CHARACTER_SKILL_ID}} in equip.bru, got:\n%s", equipStr)
 	}
 
 	// Verify environments have path variables
@@ -242,39 +242,41 @@ post {
 	if err != nil {
 		t.Fatalf("expected local.bru, err: %v", err)
 	}
-	if !strings.Contains(string(localEnv), "CHARACTER_ID: ") || !strings.Contains(string(localEnv), "SKILL_ID: ") {
-		t.Errorf("expected CHARACTER_ID and SKILL_ID in local.bru, got:\n%s", string(localEnv))
+	if !strings.Contains(string(localEnv), "CHARACTER_ID: ") || !strings.Contains(string(localEnv), "CHARACTER_SKILL_ID: ") {
+		t.Errorf("expected CHARACTER_ID and CHARACTER_SKILL_ID in local.bru, got:\n%s", string(localEnv))
 	}
 
 	devEnv, err := os.ReadFile(devEnvFile)
 	if err != nil {
 		t.Fatalf("failed to read dev.bru: %v", err)
 	}
-	if !strings.Contains(string(devEnv), "CHARACTER_ID: ") || !strings.Contains(string(devEnv), "SKILL_ID: ") {
-		t.Errorf("expected CHARACTER_ID and SKILL_ID synced into dev.bru, got:\n%s", string(devEnv))
+	if !strings.Contains(string(devEnv), "CHARACTER_ID: ") || !strings.Contains(string(devEnv), "CHARACTER_SKILL_ID: ") {
+		t.Errorf("expected CHARACTER_ID and CHARACTER_SKILL_ID synced into dev.bru, got:\n%s", string(devEnv))
 	}
 }
 
-func TestPathParamEnvVar(t *testing.T) {
+func TestRoutePathParamEnvVar(t *testing.T) {
 	tests := []struct {
-		param string
-		want  string
+		segments []string
+		index    int
+		want     string
 	}{
-		{"id", "ID"},
-		{":id", "ID"},
-		{"skill_id", "SKILL_ID"},
-		{":skill_id", "SKILL_ID"},
-		{"sector_id", "SECTOR_ID"},
-		{"stage_id", "STAGE_ID"},
-		{"character_id", "CHARACTER_ID"},
-		{"sector-id", "SECTOR_ID"},
-		{"sectorId", "SECTOR_ID"},
+		{[]string{"templates", "sectors", ":sector_id", "stages", ":stage_id"}, 2, "TEMPLATES_SECTOR_ID"},
+		{[]string{"templates", "sectors", ":sector_id", "stages", ":stage_id"}, 4, "TEMPLATES_SECTORS_STAGE_ID"},
+		{[]string{"templates", "sectors", ":sector_id"}, 2, "TEMPLATES_SECTOR_ID"},
+		{[]string{":id"}, 0, "ROOT_ID"},
+		{[]string{":sector_id"}, 0, "ROOT_SECTOR_ID"},
+		{[]string{"storage", "caches", ":id", "open"}, 2, "STORAGE_CACHES_ID"},
+		{[]string{"storage", "bridge", ":id"}, 2, "STORAGE_BRIDGE_ID"},
+		{[]string{"expedition", "entries", ":id", "claim-drop"}, 2, "EXPEDITION_ENTRIES_ID"},
+		{[]string{"character", "characters", ":character_id"}, 2, "CHARACTER_ID"},
+		{[]string{"character", "characters", ":character_id", "skills", ":skill_id", "equip"}, 4, "CHARACTER_SKILL_ID"},
 	}
 
 	for _, tt := range tests {
-		got := pathParamEnvVar(tt.param)
+		got := routePathParamEnvVar(tt.segments, tt.index)
 		if got != tt.want {
-			t.Errorf("pathParamEnvVar(%q) = %q; want %q", tt.param, got, tt.want)
+			t.Errorf("routePathParamEnvVar(%v, %d) = %q; want %q", tt.segments, tt.index, got, tt.want)
 		}
 	}
 }

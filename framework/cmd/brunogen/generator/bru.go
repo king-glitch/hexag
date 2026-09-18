@@ -430,7 +430,7 @@ func renderRoute(route parser.Route, basePath, action string) string {
 	method := strings.ToLower(route.Method)
 	hasBody := route.RequestBind == "body" && len(route.RequestFields) > 0
 	hasQuery := (route.RequestBind == "query" || route.RequestBind == "pagination") && len(route.RequestFields) > 0
-	pathParams := pathParamNames(fullSegments)
+	pathParams := extractPathParams(fullSegments)
 
 	queryString := ""
 	if hasQuery {
@@ -456,8 +456,8 @@ func renderRoute(route parser.Route, basePath, action string) string {
 
 	if len(pathParams) > 0 {
 		b.WriteString("\nparams:path {\n")
-		for _, p := range pathParams {
-			fmt.Fprintf(&b, "  %s: {{%s}}\n", p, pathParamEnvVar(p))
+		for _, pp := range pathParams {
+			fmt.Fprintf(&b, "  %s: {{%s}}\n", pp.name, pp.envVar)
 		}
 		b.WriteString("}\n")
 	}
@@ -513,25 +513,78 @@ func renderDocs(route parser.Route) string {
 	return strings.TrimSpace(b.String())
 }
 
-func pathParamNames(segments []string) []string {
-	var out []string
+type pathParam struct {
+	name   string
+	envVar string
+}
+
+func extractPathParams(segments []string) []pathParam {
+	var out []pathParam
 	seen := map[string]bool{}
-	for _, s := range segments {
+	for i, s := range segments {
 		if strings.HasPrefix(s, ":") {
 			name := strings.TrimPrefix(s, ":")
 			if !seen[name] {
 				seen[name] = true
-				out = append(out, name)
+				out = append(out, pathParam{
+					name:   name,
+					envVar: routePathParamEnvVar(segments, i),
+				})
 			}
 		}
 	}
 	return out
 }
 
-func pathParamEnvVar(name string) string {
-	name = strings.TrimPrefix(name, ":")
-	name = strings.ReplaceAll(name, "-", "_")
-	return strings.ToUpper(parser.ToSnakeCase(name))
+func routePathParamEnvVar(fullSegments []string, paramIndex int) string {
+	paramName := fullSegments[paramIndex]
+	baseVar := strings.ToUpper(parser.ToSnakeCase(strings.ReplaceAll(strings.TrimPrefix(paramName, ":"), "-", "_")))
+
+	var staticBefore []string
+	for _, s := range fullSegments[:paramIndex] {
+		if !strings.HasPrefix(s, ":") && s != "" {
+			part := strings.ToUpper(parser.ToSnakeCase(strings.ReplaceAll(s, "-", "_")))
+			staticBefore = append(staticBefore, part)
+		}
+	}
+
+	if len(staticBefore) == 0 {
+		return "ROOT_" + baseVar
+	}
+
+	for len(staticBefore) > 0 && isRedundantPrefix(staticBefore[len(staticBefore)-1], baseVar) {
+		staticBefore = staticBefore[:len(staticBefore)-1]
+	}
+
+	var deduped []string
+	for _, s := range staticBefore {
+		if len(deduped) > 0 && (s == deduped[len(deduped)-1] || isRedundantPrefix(s, deduped[len(deduped)-1]) || isRedundantPrefix(deduped[len(deduped)-1], s)) {
+			continue
+		}
+		deduped = append(deduped, s)
+	}
+	staticBefore = deduped
+
+	if len(staticBefore) == 0 {
+		return baseVar
+	}
+
+	return strings.Join(staticBefore, "_") + "_" + baseVar
+}
+
+func isRedundantPrefix(segment, baseVar string) bool {
+	segment = strings.ToUpper(segment)
+	baseVar = strings.ToUpper(baseVar)
+	if strings.HasPrefix(baseVar, segment) {
+		return true
+	}
+	if strings.HasSuffix(segment, "S") && strings.HasPrefix(baseVar, strings.TrimSuffix(segment, "S")) {
+		return true
+	}
+	if strings.HasSuffix(segment, "IES") && strings.HasPrefix(baseVar, strings.TrimSuffix(segment, "IES")+"Y") {
+		return true
+	}
+	return false
 }
 
 func collectPathParamEnvVars(routes []parser.Route) []string {
@@ -539,11 +592,10 @@ func collectPathParamEnvVars(routes []parser.Route) []string {
 	var vars []string
 	for _, r := range routes {
 		full := append(append([]string{}, r.GroupSegments...), r.PathSegments...)
-		for _, p := range pathParamNames(full) {
-			ev := pathParamEnvVar(p)
-			if !seen[ev] {
-				seen[ev] = true
-				vars = append(vars, ev)
+		for _, pp := range extractPathParams(full) {
+			if !seen[pp.envVar] {
+				seen[pp.envVar] = true
+				vars = append(vars, pp.envVar)
 			}
 		}
 	}
