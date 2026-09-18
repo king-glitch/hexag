@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/king-glitch/hexag/framework/cmd/brunogen/parser"
@@ -82,15 +83,20 @@ func Write(routes []parser.Route, basePath, outDir, collectionName string) error
 		}
 	}
 
+	pathEnvVars := collectPathParamEnvVars(routes)
+
 	envDir := filepath.Join(outDir, "environments")
 	if err := os.MkdirAll(envDir, 0755); err != nil {
 		return err
 	}
 	envFile := filepath.Join(envDir, "local.bru")
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
-		if err := os.WriteFile(envFile, []byte(defaultEnvironment(basePath)), 0644); err != nil {
+		if err := os.WriteFile(envFile, []byte(defaultEnvironment(basePath, pathEnvVars)), 0644); err != nil {
 			return err
 		}
+	}
+	if err := syncEnvironments(envDir, pathEnvVars); err != nil {
+		return err
 	}
 
 	return nil
@@ -424,7 +430,7 @@ func renderRoute(route parser.Route, basePath, action string) string {
 	method := strings.ToLower(route.Method)
 	hasBody := route.RequestBind == "body" && len(route.RequestFields) > 0
 	hasQuery := (route.RequestBind == "query" || route.RequestBind == "pagination") && len(route.RequestFields) > 0
-	pathParams := pathParamNames(route.PathSegments)
+	pathParams := pathParamNames(fullSegments)
 
 	queryString := ""
 	if hasQuery {
@@ -451,7 +457,7 @@ func renderRoute(route parser.Route, basePath, action string) string {
 	if len(pathParams) > 0 {
 		b.WriteString("\nparams:path {\n")
 		for _, p := range pathParams {
-			fmt.Fprintf(&b, "  %s: %s\n", p, pathParamExample(p))
+			fmt.Fprintf(&b, "  %s: {{%s}}\n", p, pathParamEnvVar(p))
 		}
 		b.WriteString("}\n")
 	}
@@ -509,19 +515,40 @@ func renderDocs(route parser.Route) string {
 
 func pathParamNames(segments []string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, s := range segments {
 		if strings.HasPrefix(s, ":") {
-			out = append(out, strings.TrimPrefix(s, ":"))
+			name := strings.TrimPrefix(s, ":")
+			if !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
 		}
 	}
 	return out
 }
 
-func pathParamExample(name string) string {
-	if strings.HasSuffix(strings.ToLower(name), "id") {
-		return "65f1a2b3c4d5e6f7a8b9c0d1"
+func pathParamEnvVar(name string) string {
+	name = strings.TrimPrefix(name, ":")
+	name = strings.ReplaceAll(name, "-", "_")
+	return strings.ToUpper(parser.ToSnakeCase(name))
+}
+
+func collectPathParamEnvVars(routes []parser.Route) []string {
+	seen := map[string]bool{}
+	var vars []string
+	for _, r := range routes {
+		full := append(append([]string{}, r.GroupSegments...), r.PathSegments...)
+		for _, p := range pathParamNames(full) {
+			ev := pathParamEnvVar(p)
+			if !seen[ev] {
+				seen[ev] = true
+				vars = append(vars, ev)
+			}
+		}
 	}
-	return "example-" + parser.ToKebabCase(name)
+	sort.Strings(vars)
+	return vars
 }
 
 func indent(s, prefix string) string {
@@ -542,8 +569,124 @@ func defaultBrunoJSON(name string) string {
 `, name)
 }
 
-func defaultEnvironment(basePath string) string {
-	return fmt.Sprintf("vars {\n  BASE_URL: http://localhost:8000%s\n  TOKEN: \n}\n", basePath)
+func defaultEnvironment(basePath string, envVars []string) string {
+	var b strings.Builder
+	b.WriteString("vars {\n")
+	fmt.Fprintf(&b, "  BASE_URL: http://localhost:8000%s\n", basePath)
+	b.WriteString("  TOKEN: \n")
+	for _, v := range envVars {
+		fmt.Fprintf(&b, "  %s: \n", v)
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func syncEnvironments(envDir string, envVars []string) error {
+	if len(envVars) == 0 {
+		return nil
+	}
+
+	entries, err := os.ReadDir(envDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".bru") {
+			continue
+		}
+
+		filePath := filepath.Join(envDir, entry.Name())
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+
+		updated, changed := addMissingEnvVars(string(content), envVars)
+		if changed {
+			if err := os.WriteFile(filePath, []byte(updated), 0644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func addMissingEnvVars(content string, envVars []string) (string, bool) {
+	var missing []string
+	for _, v := range envVars {
+		if !containsEnvVar(content, v) {
+			missing = append(missing, v)
+		}
+	}
+	if len(missing) == 0 {
+		return content, false
+	}
+
+	lines := strings.Split(content, "\n")
+	var result []string
+	inVars := false
+	inserted := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if (strings.HasPrefix(trimmed, "vars {") || strings.HasPrefix(trimmed, "vars{")) && strings.HasSuffix(trimmed, "}") && len(trimmed) > 7 {
+			inner := strings.TrimSpace(trimmed[strings.Index(trimmed, "{")+1 : len(trimmed)-1])
+			result = append(result, "vars {")
+			if inner != "" {
+				result = append(result, "  "+inner)
+			}
+			for _, v := range missing {
+				result = append(result, fmt.Sprintf("  %s: ", v))
+			}
+			result = append(result, "}")
+			inserted = true
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "vars {") || strings.HasPrefix(trimmed, "vars{") {
+			inVars = true
+			result = append(result, line)
+			continue
+		}
+		if inVars && trimmed == "}" {
+			for _, v := range missing {
+				result = append(result, fmt.Sprintf("  %s: ", v))
+			}
+			inVars = false
+			inserted = true
+			result = append(result, line)
+			continue
+		}
+		result = append(result, line)
+	}
+
+	if !inserted {
+		// ponytail: fallback if no vars block existed in file
+		var b strings.Builder
+		if len(result) > 0 && result[len(result)-1] != "" {
+			b.WriteString("\n")
+		}
+		b.WriteString("vars {\n")
+		for _, v := range missing {
+			fmt.Fprintf(&b, "  %s: \n", v)
+		}
+		b.WriteString("}\n")
+		return content + b.String(), true
+	}
+
+	return strings.Join(result, "\n"), true
+}
+
+func containsEnvVar(content, name string) bool {
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, name+":") || strings.HasPrefix(line, name+" ") || line == name {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultCollectionBru() string {

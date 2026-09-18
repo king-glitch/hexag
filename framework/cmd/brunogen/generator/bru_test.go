@@ -222,4 +222,91 @@ post {
 	if _, err := os.Stat(filepath.Join(skillDir, "unequip")); !os.IsNotExist(err) {
 		t.Errorf("redundant folder unequip/ should not exist under %s", skillDir)
 	}
+
+	// Verify params:path uses environment variables
+	equipContent, err := os.ReadFile(equipFile)
+	if err != nil {
+		t.Fatalf("failed to read equip.bru: %v", err)
+	}
+	equipStr := string(equipContent)
+	if !strings.Contains(equipStr, "character_id: {{CHARACTER_ID}}") {
+		t.Errorf("expected character_id: {{CHARACTER_ID}} in equip.bru, got:\n%s", equipStr)
+	}
+	if !strings.Contains(equipStr, "skill_id: {{SKILL_ID}}") {
+		t.Errorf("expected skill_id: {{SKILL_ID}} in equip.bru, got:\n%s", equipStr)
+	}
+
+	// Verify environments have path variables
+	localEnvFile := filepath.Join(tmpDir, "environments", "local.bru")
+	localEnv, err := os.ReadFile(localEnvFile)
+	if err != nil {
+		t.Fatalf("expected local.bru, err: %v", err)
+	}
+	if !strings.Contains(string(localEnv), "CHARACTER_ID: ") || !strings.Contains(string(localEnv), "SKILL_ID: ") {
+		t.Errorf("expected CHARACTER_ID and SKILL_ID in local.bru, got:\n%s", string(localEnv))
+	}
+
+	devEnv, err := os.ReadFile(devEnvFile)
+	if err != nil {
+		t.Fatalf("failed to read dev.bru: %v", err)
+	}
+	if !strings.Contains(string(devEnv), "CHARACTER_ID: ") || !strings.Contains(string(devEnv), "SKILL_ID: ") {
+		t.Errorf("expected CHARACTER_ID and SKILL_ID synced into dev.bru, got:\n%s", string(devEnv))
+	}
+}
+
+func TestPathParamEnvVar(t *testing.T) {
+	tests := []struct {
+		param string
+		want  string
+	}{
+		{"id", "ID"},
+		{":id", "ID"},
+		{"skill_id", "SKILL_ID"},
+		{":skill_id", "SKILL_ID"},
+		{"sector_id", "SECTOR_ID"},
+		{"stage_id", "STAGE_ID"},
+		{"character_id", "CHARACTER_ID"},
+		{"sector-id", "SECTOR_ID"},
+		{"sectorId", "SECTOR_ID"},
+	}
+
+	for _, tt := range tests {
+		got := pathParamEnvVar(tt.param)
+		if got != tt.want {
+			t.Errorf("pathParamEnvVar(%q) = %q; want %q", tt.param, got, tt.want)
+		}
+	}
+}
+
+func TestAddMissingEnvVars(t *testing.T) {
+	content := `vars {
+  BASE_URL: http://localhost:8000/api/v1
+  CLIENT_VERSION: 0.0.1
+  SECTOR_ID: 12345
+}
+vars:secret [
+  ACCESS_TOKEN
+]
+`
+	vars := []string{"SECTOR_ID", "STAGE_ID"}
+	got, changed := addMissingEnvVars(content, vars)
+	if !changed {
+		t.Fatalf("expected changed=true")
+	}
+	if !strings.Contains(got, "SECTOR_ID: 12345") {
+		t.Errorf("expected existing SECTOR_ID value preserved, got:\n%s", got)
+	}
+	if !strings.Contains(got, "STAGE_ID: ") {
+		t.Errorf("expected STAGE_ID added, got:\n%s", got)
+	}
+	if !strings.Contains(got, "ACCESS_TOKEN") {
+		t.Errorf("expected ACCESS_TOKEN secret preserved, got:\n%s", got)
+	}
+
+	// Running again should result in no changes
+	got2, changed2 := addMissingEnvVars(got, vars)
+	if changed2 || got2 != got {
+		t.Errorf("expected no changes on second run, changed=%v", changed2)
+	}
 }
