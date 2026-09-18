@@ -268,7 +268,11 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 		} else {
 			pathVal := strings.Trim(imp.Path.Value, `"`)
 			parts := strings.Split(pathVal, "/")
-			importedPackages[parts[len(parts)-1]] = true
+			last := parts[len(parts)-1]
+			importedPackages[last] = true
+			if len(parts) >= 2 && len(last) >= 2 && last[0] == 'v' && unicode.IsDigit(rune(last[1])) {
+				importedPackages[parts[len(parts)-2]] = true
+			}
 		}
 	}
 
@@ -1293,6 +1297,9 @@ func isRepositoryType(typeStr string) bool {
 }
 
 func isSiblingServiceType(typeStr string) bool {
+	if strings.HasPrefix(typeStr, "*") {
+		return false
+	}
 	return strings.HasSuffix(typeStr, "Service") &&
 		!strings.Contains(typeStr, "ServiceBase") &&
 		!strings.Contains(typeStr, "QueueService")
