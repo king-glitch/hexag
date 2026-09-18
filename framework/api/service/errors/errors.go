@@ -30,16 +30,35 @@ type ServiceError struct {
 func NewServiceError(code ServiceErrorCode, err error) *ServiceError {
 	message := "failed to process the request"
 	var stack string
+	var statusCode int
+	violations := make(map[string]Violation)
+
+	var serr *ServiceError
+	if errors.As(err, &serr) {
+		if serr.StatusCode != 0 {
+			statusCode = serr.StatusCode
+		}
+		for k, v := range serr.Violations {
+			violations[k] = v
+		}
+	}
+
 	if err != nil {
-		message = errors.Cause(err).Error()
+		cause := errors.Cause(err)
+		if cause != nil {
+			message = cause.Error()
+		} else {
+			message = err.Error()
+		}
 		stack = err.Error()
 	}
 
 	return &ServiceError{
+		StatusCode: statusCode,
 		Message:    message,
 		Code:       code,
 		Stack:      stack,
-		Violations: make(map[string]Violation),
+		Violations: violations,
 		cause:      err,
 	}
 }
@@ -50,8 +69,16 @@ func (e *ServiceError) WithStatusCode(code int) *ServiceError {
 }
 
 func (e *ServiceError) Wrap(message string) *ServiceError {
+	if e == nil {
+		return nil
+	}
+
 	if e.cause != nil {
 		e.cause = errors.Wrap(e.cause, message)
+	} else if e.Stack != "" {
+		e.cause = errors.Wrap(errors.New(e.Stack), message)
+	} else if e.Message != "" {
+		e.cause = errors.Wrap(errors.New(e.Message), message)
 	} else {
 		e.cause = errors.New(message)
 		e.Message = message
@@ -62,6 +89,14 @@ func (e *ServiceError) Wrap(message string) *ServiceError {
 }
 
 func (e *ServiceError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+
+	return e.cause
+}
+
+func (e *ServiceError) Cause() error {
 	if e == nil {
 		return nil
 	}
@@ -85,6 +120,18 @@ func (e *ServiceError) AddError(field string, message string, err error) *Servic
 }
 
 func (e *ServiceError) Error() string {
+	if e == nil {
+		return ""
+	}
+
+	if e.cause != nil {
+		return e.cause.Error()
+	}
+
+	if e.Stack != "" {
+		return e.Stack
+	}
+
 	return e.Message
 }
 
@@ -141,6 +188,11 @@ func ServiceErrorCodeFor(err error) ServiceErrorCode {
 		if errors.Is(err, sentinel) {
 			return code
 		}
+	}
+
+	var serr *ServiceError
+	if errors.As(err, &serr) && serr.Code != "" {
+		return serr.Code
 	}
 
 	return ServiceErrorCodeInternal
