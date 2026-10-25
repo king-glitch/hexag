@@ -93,8 +93,24 @@ func (g *Generator) GenerateModel(
 	packageName string,
 	standalone bool,
 ) ([]byte, error) {
+	return g.GenerateModelWithSeen(meta, packageName, standalone, make(map[string]bool))
+}
+
+// GenerateModelWithSeen renders one model's Field-struct file while sharing
+// a seen-map of nested struct types across multiple models in the same package
+// to prevent duplicate type declarations.
+func (g *Generator) GenerateModelWithSeen(
+	meta parser.StructMeta,
+	packageName string,
+	standalone bool,
+	seenNested map[string]bool,
+) ([]byte, error) {
 	if packageName == "" {
 		packageName = meta.PackageName
+	}
+
+	if seenNested == nil {
+		seenNested = make(map[string]bool)
 	}
 
 	importSet := make(map[string]bool)
@@ -119,7 +135,7 @@ func (g *Generator) GenerateModel(
 	hasAlias := meta.VarName != meta.StructName
 
 	fieldsWithPkg := withFieldPkg(meta.Fields, fieldPkg)
-	nestedTypes := collectNestedTypes(fieldsWithPkg, fieldPkg, make(map[string]bool))
+	nestedTypes := collectNestedTypes(fieldsWithPkg, fieldPkg, seenNested)
 
 	data := ModelViewData{
 		PackageName: packageName,

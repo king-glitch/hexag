@@ -104,8 +104,9 @@ func runMongo(args []string) error {
 		fmt.Printf("Generated %s\n", fieldPath)
 	}
 
+	seenNested := make(map[string]bool)
 	for _, meta := range metas {
-		modelContent, err := gen.GenerateModel(meta, targetPkg, *standaloneFlag)
+		modelContent, err := gen.GenerateModelWithSeen(meta, targetPkg, *standaloneFlag, seenNested)
 		if err != nil {
 			return fmt.Errorf("failed to generate model for %s: %w", meta.StructName, err)
 		}

@@ -131,8 +131,9 @@ func main() {
 		fmt.Printf("Generated %s\n", fieldPath)
 	}
 
+	seenNested := make(map[string]bool)
 	for _, meta := range metas {
-		modelContent, err := gen.GenerateModel(meta, pkgFlag, standaloneFlag)
+		modelContent, err := gen.GenerateModelWithSeen(meta, pkgFlag, standaloneFlag, seenNested)
 		if err != nil {
 			log.Fatalf("Failed to generate model for %s: %v", meta.StructName, err)
 		}

@@ -111,8 +111,63 @@ func TestGenerateModel_NestedStructType(t *testing.T) {
 		Kills:  mongo.NewField[int]("stats.kills"),
 		Deaths: mongo.NewField[int]("stats.deaths"),
 	},
-}`
+}
+`
 	require.Contains(t, code, expectedInit)
 }
+
+func TestGenerateModel_DeduplicateNestedAcrossModels(t *testing.T) {
+	gen, err := NewGenerator()
+	require.NoError(t, err)
+
+	sharedNestedField := parser.FieldMeta{
+		GoName:               "Group",
+		GoType:               "ports.ThreadGroup",
+		BsonKey:              "group",
+		FieldType:            "Field[ports.ThreadGroup]",
+		NestedStructTypeName: "ThreadGroupModel",
+		SubFields: []parser.FieldMeta{
+			{GoName: "ID", GoType: "string", BsonKey: "group.id", FieldType: "Field[string]"},
+			{GoName: "Name", GoType: "string", BsonKey: "group.name", FieldType: "Field[string]"},
+		},
+	}
+
+	meta1 := parser.StructMeta{
+		PackageName: "models",
+		StructName:  "SourcePostModel",
+		VarName:     "SourcePost",
+		Fields: []parser.FieldMeta{
+			{GoName: "ID", GoType: "bson.ObjectID", BsonKey: "_id", FieldType: "Field[bson.ObjectID]"},
+			sharedNestedField,
+		},
+	}
+
+	meta2 := parser.StructMeta{
+		PackageName: "models",
+		StructName:  "ThreadDraftModel",
+		VarName:     "ThreadDraft",
+		Fields: []parser.FieldMeta{
+			{GoName: "ID", GoType: "bson.ObjectID", BsonKey: "_id", FieldType: "Field[bson.ObjectID]"},
+			sharedNestedField,
+		},
+	}
+
+	seenNested := make(map[string]bool)
+
+	content1, err := gen.GenerateModelWithSeen(meta1, "models", false, seenNested)
+	require.NoError(t, err)
+	code1 := string(content1)
+	require.Contains(t, code1, "type ThreadGroupModel struct {")
+
+	content2, err := gen.GenerateModelWithSeen(meta2, "models", false, seenNested)
+	require.NoError(t, err)
+	code2 := string(content2)
+	// Second model should not declare ThreadGroupModel again
+	require.NotContains(t, code2, "type ThreadGroupModel struct {")
+	// But it should still reference and initialize it
+	require.Contains(t, code2, "Group ThreadGroupModel")
+	require.Contains(t, code2, "Group: ThreadGroupModel{")
+}
+
 
 

@@ -338,6 +338,10 @@ func (p *Parser) typeToString(expr ast.Expr, sourcePackage string, importSet map
 				importSet["time"] = true
 				return "time." + sel
 			}
+			if pkg == "json" {
+				importSet["encoding/json"] = true
+				return "json." + sel
+			}
 			return pkg + "." + sel
 		}
 		return fmt.Sprintf("%v.%s", t.X, t.Sel.Name)
