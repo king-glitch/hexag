@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -qE '\"file_path\": *\"[^\"]*\\.go\"' || exit 0; cd \"$CLAUDE_PROJECT_DIR\" && make -s verify >&2 || { echo 'make verify failed: fix these violations before the next edit (AGENTS.md Operating Loop).' >&2; exit 2; }"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && echo 'Context was compacted or resumed. Re-apply these rules before the next edit:' && sed -n '/^## Operating Loop/,/^## Architecture/p' AGENTS.md && cat MEMORY.md"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,47 +5,80 @@
 - Run `/ponytail ultra` before work; keep it active.
 - Be terse and implementation-focused.
 - Use installed skills/MCP before improvising.
-- Go 1.27+; module `github.com/king-glitch/hexag`; strict hexagonal architecture.
-- Framework: `github.com/king-glitch/hexag`.
+- Go 1.27+; module `{{MODULE_PATH}}`; framework `github.com/king-glitch/hexag`; strict hexagonal architecture.
 - Root `CLAUDE.md` imports this file; never remove/break that link.
-- Run `make verify` before updating `MEMORY.md`. If it fails, fix the code immediately.
-- Check `MEMORY.md` to resume where left off; update `MEMORY.md` after completing each step in `docs/plans/` so next agent can seamlessly continue.
 - If repository state or user instructions conflict with this file, stop and ask.
+
+---
+
+## Operating Loop
+
+Long sessions drift. Rules read at the start fade, and agents start to copy their own recent code or generic Go habits.
+This loop prevents that. Follow it on every step, not once per session.
+
+1. **Resume.** Read `MEMORY.md`, then the open plan in `docs/plans/`. After a context compaction, a resume, or every
+   ~5 edited files, re-read this section and the Zero-Tolerance table before the next edit.
+2. **Mirror a reference.** Before you create or rewrite a file, open its reference file (table below) and copy its
+   shape: imports, aliases, struct fields, constructor, error handling, response style. Never write from memory or
+   generic Go idioms.
+3. **Edit small.** Change one layer or one feature slice per step.
+4. **Verify every step.** Run `make verify` after each step, not only at the end. Fix every violation before the next
+   edit. Never defer fixes.
+5. **Check blind spots.** `make verify` cannot see some rules. Check them by hand before you mark a step done.
+6. **Record.** Update `MEMORY.md` (step, state, next action) only after `make verify` exits 0.
+7. **Trust order.** This file > `make verify` output > verified existing code > your memory of earlier turns. If code you
+   wrote earlier in this session conflicts with this file, fix that code. Do not copy it.
+
+### Reference Files
+
+If an example file was renamed or replaced, mirror the oldest verified sibling in the same directory.
+
+| Writing                       | Mirror                                                              |
+|-------------------------------|---------------------------------------------------------------------|
+| Domain model                  | `internal/ports/domain.go`                                          |
+| Enum / sentinel               | `internal/ports/enum.go`, `internal/ports/errors.go`                |
+| Port interface                | `internal/ports/service.go`, `internal/ports/repository.go`         |
+| Service                       | `internal/services/example/service.go`                              |
+| HTTP handler                  | `internal/adapters/endpoint/fiber/routes/example.go`                |
+| Mongo repository / indexes    | `internal/adapters/database/mongo/repository/example/`              |
+| Wiring                        | `commands/main.go`, `internal/adapters/endpoint/fiber/handler.go`   |
+
+### Verifier Blind Spots (check by hand)
+
+- Multiline signatures, calls, and struct literals: one argument per line.
+- Handler file order per endpoint: Request, Response, method. Handlers hold no business rules.
+- Transactions: inner callback `ctx` on every inner call; wrap callback errors and the outer `Run` return.
+- Bearer tokens: `hexcrypto.HashToken(token)` before any DB read/write.
+- Domain models: `CollectionName()`, `WithBase(...)`, `MarshalJSON()` via `modelbase.MarshalOmitBase(...)`.
+- Every `errors.Wrap` message names the failed action.
+- Generated files untouched; `make generate` / `make mockery` / `make bruno` ran when needed.
+- No comments that restate code.
 
 ---
 
 ## ⛔ Zero-Tolerance Rules
 
-AI agents frequently drift toward generic Go idioms. The following violations will cause task rejection:
+Agents drift toward generic Go idioms. Each violation causes task rejection.
 
-| Category             | ❌ FORBIDDEN (Do NOT do this)                   | ✅ MANDATORY (Do this instead)                               |
-|----------------------|-------------------------------------------------|--------------------------------------------------------------|
-| **File Names**       | `user_service.go`, `create_user.go`             | `service.go`, `user.go` (single-word lowercase)              |
-| **File Names**       | `user-handler.go`, `user_repo.go`               | `handler.go`, `repository.go`                                |
-| **Service Struct**   | `repo ports.UserRepository` or `userRepo ...`   | `repository ports.UserRepository` (exact word: `repository`) |
-| **Sibling Services** | `userService ports.UserService`                 | `us ports.UserService` (strict lowercase acronym)            |
-| **Sibling Services** | `creditService ports.CreditService`             | `cs ports.CreditService`                                     |
-| **Handler Services** | `connectionService ports.BotConnectionService` | `bcs ports.BotConnectionService` (strict lowercase acronym)  |
-| **Service Fields**   | `AccountService ...` (exported / full name)     | `gas ...` (unexported lowercase acronym across all structs)  |
-| **Repo Fields**      | `ConnectionRepository ...` (exported on struct) | Unexported field or accessed via `GetConnectionRepository()` |
-| **Dependencies**     | `s.deps.GetConnectionRepo()`                    | `s.deps.GetConnectionRepository()` (never abbreviate)        |
-| **Dependencies**     | `s.deps.ConnectionRepo` (struct field access)   | `s.deps.GetConnectionRepository()` (getter method)           |
-| **Dependencies**     | `s.deps.ConnectionRepository` (field access)    | `s.deps.GetConnectionRepository()` (getter method)           |
-| **Dependencies**     | Nil checks: `if s.us != nil`, `if t.brr != nil` | Dependencies are guaranteed non-nil via constructor injection|
-| **Tx Runner**        | Storing `txRunner` as a field on service struct | Call `s.GetTransactionRunner().Run(...)` via base service    |
-| **Collections**      | Raw strings: `"users"`, `"user"`                | `ports.UserModel{}.CollectionName()`                         |
-| **Collections**      | Plural names: `"subscriptions"`                 | Singular names: `"subscription"`                             |
-| **Errors**           | Naked returns: `return err`                     | `return errors.Wrap(err, "context message")`                 |
-| **Errors**           | Discarding errors: `_ = dep.Method(...)`, `_ = err` | Handle or return every error wrapped with `errors.Wrap`      |
-| **Sentinels**        | `if err == ports.ErrNotFound` or defining local error `var errX = errors.New(...)` | Sentinel comparisons via `errors.Is(err, ports.ErrX)`; all sentinels defined in `internal/ports/errors.go` |
-| **Constants**        | Defining constants in adapter or service files (`const loadTimeout = ...`) | Define constants in `internal/core/constant/` or typed enums in `internal/ports/` |
-| **Time Handling**    | Calling `time.Now()` in functions that receive `time.Time`; multiple `time.Now()` in same function | Capture once at entry (`at := time.Now()` or `at := hextransport.RequestTime(c)`) and pass `at` through |
-| **Struct Fields**    | Exported fields on structs that have `Get...()` getter methods | Make all fields unexported; add `Get<Field>()` for each field that needs external access |
-| **HTTP Queries**     | `c.Query("page")` or manual `strconv`           | `hextransport.BindQuery(c, &req)`                            |
-| **Validation**       | Re-checking string length/enums in service      | Let HTTP validator tags handle transport validation          |
-| **Enums**            | Enums without `IsValid() bool`                  | All domain enums must implement `IsValid() bool`             |
-| **Enum Validation**  | `validate:"oneof=active ..."`                   | Use typed enum directly; framework autodetects `IsValid()`   |
-| **Verification**     | Skipping `make verify` check                    | Run `make verify` (must exit code 0 before updating MEMORY)  |
+| Category             | ❌ FORBIDDEN                                                                 | ✅ MANDATORY                                                                  |
+|----------------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| **File Names**       | `user_service.go`, `create_user.go`, `user-handler.go`, `user_repo.go`      | `service.go`, `handler.go`, `repository.go`, `user.go` (single-word)         |
+| **Primary Repo**     | `repo ports.UserRepository`, `userRepository ...`                           | `repository ports.UserRepository` (exact word)                               |
+| **Service Fields**   | `userService`, `connectionService`, `AccountService` (any struct)           | `us`, `bcs`, `gas` (unexported lowercase acronym, every struct in `internal/`) |
+| **Repo Fields**      | `ConnectionRepository ...` exported on a struct                             | Unexported field; external access via `GetConnectionRepository()`           |
+| **Dependencies**     | `s.deps.GetConnectionRepo()`, `s.deps.ConnectionRepo`, `s.deps.ConnectionRepository` | `s.deps.GetConnectionRepository()` (full-word getter)              |
+| **Nil Checks**       | `if s.us != nil`, `if t.brr != nil`                                         | None. Constructor injection guarantees non-nil                               |
+| **Tx Runner**        | `txRunner` field or constructor argument                                    | `s.GetTransactionRunner().Run(...)` via base service                         |
+| **Collections**      | `"users"`, `"user"`, `"subscriptions"`                                      | `ports.UserModel{}.CollectionName()` returning singular snake_case           |
+| **Errors**           | `return err`, `_ = dep.Method(...)`, `_ = err`                              | `return errors.Wrap(err, "action context")`; handle every error              |
+| **Sentinels**        | `err == ports.ErrNotFound`, local `var errX = errors.New(...)`              | `errors.Is(err, ports.ErrX)`; sentinels only in `internal/ports/errors.go`   |
+| **Constants**        | `const loadTimeout = ...` in adapter/service files                          | `internal/core/constant/` (untyped) or typed enums in `internal/ports/`      |
+| **Time**             | `time.Now()` in a function that receives `time.Time`; 2+ `time.Now()` calls | Capture once (`at := hextransport.RequestTime(c)` or `at := time.Now()`), pass `at` |
+| **Struct Fields**    | Exported fields on a struct that has `Get...()` methods                     | All fields unexported; `Get<Field>()` for external access                    |
+| **HTTP Input**       | `c.Query("page")`, `strconv`, `time.Parse`                                  | `hextransport.Bind` / `hextransport.BindQuery` into typed DTOs               |
+| **Validation**       | Re-checking length/enum in service; `validate:"oneof=..."`                  | Validator tags + typed enums (framework calls `IsValid()`)                   |
+| **Enums**            | Typed enum without `IsValid() bool`, or missing a constant                  | `IsValid()` covers every declared constant                                   |
+| **Verification**     | Skipping `make verify`, or running it only at the end                       | `make verify` exits 0 after every step                                       |
 
 ---
 
@@ -57,50 +90,27 @@ HTTP/Mongo adapters -> project ports <- services
 services -> core + project ports
 ```
 
-- Adapters implement interfaces from `internal/ports`.
-- All cross-boundary behavior uses interfaces.
-- Services/core depend inward; never on concrete adapters.
-- Services never import HTTP, Fiber, Mongo implementation, or adapter packages.
+- Adapters implement interfaces from `internal/ports`. All cross-boundary behavior uses interfaces.
+- Services/core depend inward. Services never import HTTP, Fiber, Mongo implementation, or adapter packages.
 - Core is pure and performs no I/O.
-- Ports never import project core/services/adapters; they may import only stdlib, contract-required Mongo primitives
-  (e.g. `bson.ObjectID`), and `hexag/framework/ports`.
-- Keep one repository interface and implementation package per service, even across multiple collections.
+- Ports import only stdlib, contract-required Mongo primitives (e.g. `bson.ObjectID`), and `hexag/framework/ports`.
+- One repository interface and implementation package per service, even across multiple collections.
 
 ---
 
-## File Naming & Directory Layout
+## Naming & Layout
 
-- **Default rule:** Single-word lowercase filenames. The directory provides the contextual scope.
-  - `internal/services/user/service.go` (NOT `user_service.go`)
-  - `internal/services/user/handler.go` (NOT `user_handler.go`)
-  - `internal/adapters/database/mongo/user/repository.go` (NOT `user_repository.go`)
-  - `internal/core/domain/user/rules.go` (NOT `user_rules.go`)
+### Files & Routes
 
-- **Sibling disambiguation:** Use kebab-case ONLY when multiple files share a directory and cannot be named cleanly by
-  role.
-  - Allowed: `rule-billing.go` vs `rule-trial.go`
-  - Banned: `user-service.go`, `create-user-handler.go`, `user_repo.go`
+- Single-word lowercase filenames; the directory gives scope (`internal/services/user/service.go`,
+  `internal/adapters/database/mongo/user/repository.go`, `internal/core/domain/user/rules.go`).
+- Kebab-case only to disambiguate siblings that a role name cannot separate: `rule-billing.go` vs `rule-trial.go`.
+  Banned: `user-service.go`, `create-user-handler.go`.
+- Routes: kebab-case `/api/v1/{service}/{resource-or-action}`. Mongo collections: singular snake_case.
 
-- **Route segments:** kebab-case: `/api/v1/{service}/{resource-or-action}`.
-- **Mongo collections:** Singular snake_case (`user`, `subscription_tier`).
-
----
-
-## Naming & Structural Invariants
-
-### 1. Service Structs & Injections
-
-- The service's primary repository field MUST be named `repository`:
+### Services & Injection
 
 ```go
-// ❌ WRONG
-type Service struct {
-    servicebase.ServiceBase
-    repo             ports.UserRepository
-    userRepository   ports.UserRepository
-}
-
-// ✅ CORRECT
 type Service struct {
     servicebase.ServiceBase
     repository ports.UserRepository
@@ -109,42 +119,22 @@ type Service struct {
 }
 ```
 
-- Injected sibling services MUST be named by lowercase acronyms of their interface type:
-  - `ports.UserService` → `us`
-  - `ports.CreditService` → `cs`
-  - `ports.AuthenticationService` → `as`
-  - `ports.BotConnectionService` → `bcs`
-  - `ports.GameAccountService` → `gas`
-  - `ports.AaBbCcService` (3+ words) → `abcs`
+- Service fields use the lowercase acronym of the interface: `UserService` → `us`, `CreditService` → `cs`,
+  `AuthenticationService` → `as`, `BotConnectionService` → `bcs`, `GameAccountService` → `gas`.
+- On acronym collision use a 2-4 letter subsequence ending in `s` (`AuditService` → `aus` when `as` is taken).
+- `NewService(...)` parameters use the same names: `repository`, `us`, `cs`.
+- A service holds only its own repository. Never inject another service's repository.
+- No cyclic dependencies, no setter injection (`WithAuth(...)`). Extract shared workflows into an orchestrator service.
+- Local variables use clean acronyms (`ur` for `UserRepository`), never `userRepo`.
+- Never stutter: `user.NewService()`, not `user.NewUserService()`.
+- Structs used only inside their directory may have unexported fields freely. Cross-package access goes through a
+  `ports` interface or full-word `Get...()` getters. Never access another package's struct fields directly.
 
-- Across all structs in `internal/` (including handlers like `ConnectionHandler`, dependency structs like `Deps`, runners, supervisors), service fields MUST be unexported lowercase acronyms of their interface type (`cs`, `gas`, `us`, `bcs`, `es`). Never export service interface fields (`AccountService`, `CreditService`), never use full service names (`connectionService`, `userService`), and never access services directly by full names (`h.connectionService`, `s.deps.CreditService`).
-- If a struct or dependency is used only within the same directory, unexported fields are fine; if it needs to be exported across package boundaries, it MUST be exposed through an interface in `internal/ports` or accessed via full-word getter methods (`GetConnectionRepository()`)—zero direct struct field access across package boundaries.
-- Repository fields on dependency structs or other structs must be unexported (e.g. `connectionRepository` or `bcr`). Never access repository fields directly across boundaries; always expose and call getter methods (`GetConnectionRepository()`).
-- In `NewService(...)` constructors, the primary repository parameter must be named `repository`, and sibling service parameters must use lowercase acronyms (`cs`, `us`, `as`).
-- Injected services are never nil. Never write nil checks (`if s.us != nil`). Inject all dependencies unconditionally
-  via constructor `NewService(...)`.
-- A service must ONLY hold its own repository (`repository ports.<Entity>Repository`). Never inject another service's
-  repository directly.
-- Never use cyclic dependencies or setter injection (`func (s Service) WithAuth(...) Service`). Extract shared workflows
-  into an orchestrator service.
-- Local repository/service variables must use clean acronyms (`ur` for `UserRepository`), never abbreviations like
-  `userRepo`.
-- Never stutter package and function names: `user.NewService()`, not `user.NewUserService()`.
+### Signatures & Formatting
 
-### 2. Dependency Getters
-
-- Dependency getter methods MUST use full words starting with `Get`. Shortened names or direct field accesses are strictly forbidden:
-  - `s.deps.GetConnectionRepository()` (REQUIRED)
-  - `s.deps.GetConnectionRepo()` (BANNED)
-  - `s.deps.ConnectionRepo` (BANNED)
-  - `s.deps.ConnectionRepository` (BANNED)
-
-### 3. Signatures & Multiline Formatting
-
-- `context.Context` is always the first parameter.
-- Immutable services use value receivers.
-- If a signature, call site, or struct initialization does not fit on one line, format with **strictly one
-  argument/parameter per line**, including function literals:
+- `context.Context` is always the first parameter. Immutable services use value receivers.
+- If a signature, call, or struct literal does not fit on one line, put exactly one argument per line, including
+  function literals. Never group or column-align.
 
 ```go
 result, err := s.repository.UpdateStatus(
@@ -154,8 +144,6 @@ result, err := s.repository.UpdateStatus(
     at,
 )
 ```
-
-- Never group or column-align multiline arguments.
 
 ---
 
@@ -180,8 +168,7 @@ Framework-owned (`github.com/king-glitch/hexag`):
 | `framework/cmd/verify`            | Architecture, naming, and style rule verification (`hexag verify`, `make verify`)                                                                                     |
 | `cmd/hexag`                       | Unified CLI (`hexag verify`, `hexag bruno`, `hexag mongo`, `hexag new`, `hexag update`)                                                                               |
 
-- Import framework symbols directly from their owning package. Never re-alias, pass-through wrap, copy, vendor, or
-  locally regenerate them.
+- Import framework symbols from their owning package. Never re-alias, wrap, copy, vendor, or regenerate them.
 - Project owns `internal/ports/domain.go`, project interfaces/sentinels, core rules, services, repositories,
   handlers/routes, config, and domain DTO/mapping.
 
@@ -189,26 +176,24 @@ Framework-owned (`github.com/king-glitch/hexag`):
 
 ## Domain Models
 
-All domain models live in `internal/ports/domain.go` and must:
+All domain models live in `internal/ports/domain.go`:
 
-- Be named `<Entity>Model`; no factories.
+- Name `<Entity>Model`; no factories.
 - Embed `modelbase.ModelBase` first; add `modelbase.WithUserID` when user-scoped.
-- Use snake_case `json` and `bson` tags.
-- Implement `CollectionName() string` returning a singular snake_case name.
-- Implement `WithBase(hexports.ModelBase) <Entity>Model` via `m.ModelBase = m.ModelBase.WithBase(base)`.
-- Implement `MarshalJSON()` via direct `modelbase.MarshalOmitBase(...)`.
-- Represent polymorphism with small interfaces (e.g. `GetID`, `GetType`) and concrete implementations.
-- Always obtain collection names via `ports.<Entity>Model{}.CollectionName()`. Never hardcode collection name strings in
-  queries, migrations, or repositories.
+- snake_case `json` and `bson` tags.
+- `CollectionName() string` returns a singular snake_case name.
+- `WithBase(hexports.ModelBase) <Entity>Model` sets `m.ModelBase = m.ModelBase.WithBase(base)`.
+- `MarshalJSON()` calls `modelbase.MarshalOmitBase(...)` directly.
+- Polymorphism: small interfaces (`GetID`, `GetType`) with concrete implementations.
 
 ---
 
 ## Rules & Enums
 
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
-- Call domain functions directly; never hide domain/framework functions behind trivial service wrappers.
-- Define typed enums/constants in `internal/ports`; never use raw strings in domain or service code.
-- All typed domain enums defined in `internal/ports` MUST implement `IsValid() bool` (implementing `hexports.Validatable`) covering all declared constants. The verifier mechanically checks that no declared constants are missed:
+- Call domain/framework functions directly; never wrap them in trivial service methods.
+- Typed enums live in `internal/ports/enum.go`; never use raw strings in domain or service code.
+- Every typed enum implements `IsValid() bool` (`hexports.Validatable`) covering all declared constants:
 
 ```go
 type PlanType string
@@ -228,57 +213,42 @@ func (p PlanType) IsValid() bool {
 }
 ```
 
-- In HTTP request DTOs, use typed domain enums directly (e.g. `Plan PlanType ` + "`" + `json:"plan"` + "`" + `).
-- Never write hardcoded `validate:"oneof=..."` tags for enum values. The framework validator automatically detects any field implementing `hexports.Validatable` and validates it via `IsValid()`.
+- Request DTOs use typed enums directly (`Plan ports.PlanType`). The validator detects `IsValid()`; never add `oneof=`.
 
 ---
 
 ## HTTP Handlers
 
 - One value-struct handler per service with `Register(fiber.Router)`.
-- Handler methods MUST be exported with capitalized names: `(h <Service>Handler) <MethodName>(c fiber.Ctx) error`.
-- Handlers only bind/validate, convert transport types, capture/pass `at`, call services, map response DTOs, and return
-  framework responses; no business rules.
-- Capture request time once via `at := hextransport.RequestTime(c)` and pass `at` through to services; never invoke
-  `time.Now()`.
-- Request DTOs may use `time.Time` and typed domain enums directly; never manually parse date/time strings
-  (`time.Parse`) or cast raw strings in handlers.
-- Bind request DTOs via `hextransport.Bind(c, &req)` or `hextransport.BindQuery(c, &req)`. Never manually parse with
-  `c.Query()` or `strconv`.
-- Parse pagination with `hextransport.ParsePaginationParamsContext(c, [defaultAmount])`.
-- File layout order per endpoint (cluster together, never separate at file extremes):
-  1. `type <MethodName>Request struct`
-  2. `type <MethodName>Response struct`
-  3. `func (h <Service>Handler) <MethodName>(c fiber.Ctx) error`
-
-- Handlers returning data return `hextransport.NewSuccessResponse(<MethodName>Response{...}).ToJSON(c)`.
-- Handlers returning no data return `hextransport.NewSuccessResponse().ToJSON(c)` without arguments; never define empty
-  response structs.
-- Never hand-roll CORS, request logging, struct validation, or error handling. Build Fiber only via `hexhttpx.New`.
+- Exported methods: `func (h <Service>Handler) <MethodName>(c fiber.Ctx) error`.
+- Handlers only bind, convert transport types, capture `at`, call services, map response DTOs, and return framework
+  responses. No business rules.
+- `at := hextransport.RequestTime(c)` once per request; never `time.Now()`.
+- Bind via `hextransport.Bind(c, &req)` or `hextransport.BindQuery(c, &req)`. DTOs may use `time.Time` and typed enums.
+- Pagination: `hextransport.ParsePaginationParamsContext(c, [defaultAmount])`.
+- Keep each endpoint together: `<MethodName>Request`, `<MethodName>Response`, then the method.
+- With data: `hextransport.NewSuccessResponse(<MethodName>Response{...}).ToJSON(c)`.
+- Without data: `hextransport.NewSuccessResponse().ToJSON(c)`; never define empty response structs.
+- Never hand-roll CORS, request logging, validation, or error handling. Build Fiber only via `hexhttpx.New`.
 
 ---
 
 ## Persistence, Security & Transactions
 
 - Pass `at time.Time` from HTTP through service to repository.
-- Repositories assign persisted IDs/base timestamps. Repository `Create` calls `hexmongo.GenerateBaseModel` immediately
-  before `InsertOne`.
-- Handlers and services never generate persisted IDs or timestamps.
-- Hash bearer tokens with `hexcrypto.HashToken(token)` before any DB interaction; never store or query raw tokens.
-- Repository mutations return `(bson.ObjectID, error)`.
-- Repository reads return models by value: `(ports.<Entity>Model, error)`.
+- Repositories assign IDs/base timestamps: `Create` calls `GenerateBaseModel` immediately before `InsertOne`.
+  Handlers and services never generate IDs or timestamps.
+- Mutations return `(bson.ObjectID, error)`; reads return models by value `(ports.<Entity>Model, error)`.
 - Repositories return plain `error`; services return `*serviceerrors.ServiceError`.
-- Multi-write operations use `s.GetTransactionRunner().Run(ctx, func(ctx context.Context) error { ... })`.
-- Never pass `TransactionRunner` as a constructor argument or store it on service structs.
-- Always pass the transaction callback's inner `ctx` to all inner repository calls. Wrap both callback errors and the
-  outer transaction runner return.
+- Hash bearer tokens with `hexcrypto.HashToken(token)` before any DB interaction.
+- Multi-write operations use `s.GetTransactionRunner().Run(ctx, func(ctx context.Context) error { ... })`, pass the
+  inner `ctx` to every inner call, and wrap both callback errors and the outer return.
 
 ---
 
 ## Error Handling
 
-- Every layer adds context with `errors.Wrap(err, "action context")`; never return naked errors.
-- Evaluate error checks in `if` initializers when the variable is not reused:
+- Use `if` initializers when the error variable is not reused:
 
 ```go
 if err := s.repository.Update(ctx, id, at); err != nil {
@@ -286,61 +256,41 @@ if err := s.repository.Update(ctx, id, at); err != nil {
 }
 ```
 
-- Variable conventions: `err` for standard `error`; `serr` for `*serviceerrors.ServiceError`.
-- Sentinel comparisons MUST use `errors.Is(err, ports.ErrX)`. Never use `==`, `!=`, or `switch err`.
-- Define project sentinels in `internal/ports/errors.go`; register every sentinel in `init()` with
-  `serviceerrors.RegisterSentinel`.
-- For multiple settle/cleanup failure paths: named error return + one `defer` + one final error inspection. Never
-  duplicate cleanup calls.
+- Names: `err` for `error`, `serr` for `*serviceerrors.ServiceError`.
+- Never compare errors with `==`, `!=`, or `switch err`.
+- Register every sentinel in `internal/ports/errors.go` `init()` with `serviceerrors.RegisterSentinel`.
+- Multiple settle/cleanup failure paths: named error return, one `defer`, one final inspection. Never duplicate cleanup.
 
 ---
 
 ## Code Generation & Mocks
 
-- `internal/ports/domain.go` must contain:
+- `internal/ports/domain.go` starts with:
 
 ```go
 //go:generate go run github.com/king-glitch/hexag/framework/cmd/mongogen -file=domain.go -out=../adapters/database/mongo/models -pkg=models
 package ports
 ```
 
-- After model changes, run `go generate ./internal/ports/...` (or `make generate`).
-- Run `make bruno` to generate Bruno API collection (`docs/bruno`) and API contract reference (`docs/API.md`) after
-  adding or updating routes/handlers.
-- Run `make verify` (or `hexag verify`) to verify strict adherence to architecture, naming, and style rules.
-- Never manually write or edit generated files (`internal/adapters/database/mongo/models/*.go`, `docs/bruno/**/*.bru`,
-  `docs/API.md`).
-- Project mocks live in `.mockery.yml` targeting only project interfaces in `internal/ports`. Run `make mockery`.
-- Never edit mocks manually and never regenerate framework interfaces locally. Import framework mocks directly from
+- Model change: `make generate`. Port change: `make mockery`. Route/handler change: `make bruno`.
+- Never edit generated files: `internal/adapters/database/mongo/models/*.go`, mocks, `docs/bruno/**/*.bru`, `docs/API.md`.
+- Mocks target only project interfaces in `internal/ports` (`.mockery.yml`). Import framework mocks from
   `github.com/king-glitch/hexag/framework/ports/mocks`.
 
 ---
 
 ## Comments
 
-- Default to none.
-- Never restate code.
-- Comment only hidden invariants, subtle compatibility workarounds, package-rule rationale, or caller obligations not
-  expressible by types.
+- Default to none. Never restate code.
+- Comment only hidden invariants, compatibility workarounds, package-rule rationale, or caller obligations that types
+  cannot express.
 
 ---
 
 ## Pre-Completion Checklist
 
-Execute this checklist before reporting any task complete:
-
-- [ ] **Verification:** Ran `make verify` (or `hexag verify`) and confirmed zero rule violations (exit code 0).
-- [ ] **File Names:** Every file is single-word lowercase (`service.go`, `handler.go`, `repository.go`), with kebab-case
-  reserved solely for sibling disambiguation.
-- [ ] **Service Fields:** Primary repository is named `repository`. Sibling services and handler service fields are named using lowercase acronyms (`us`, `cs`, `bcs`, `gas`, `es`) and are unexported across all structs in `internal/`.
-- [ ] **Dependencies:** All getter methods use full names (`s.deps.GetConnectionRepository()`, never abbreviations or direct field accesses); zero nil checks on dependencies (`if s.us != nil`, `if t.brr != nil`).
-- [ ] **Collections:** All collections use `ports.<Entity>Model{}.CollectionName()` (never hardcoded strings or plural
-  names).
-- [ ] **Error Wrapping:** Every error propagation uses `errors.Wrap`; all comparisons use `errors.Is`; zero discarded errors (`_ = dep.Method(...)`, `_ = err`).
-- [ ] **Security:** All token lookups/writes hash tokens with `hexcrypto.HashToken(token)` before DB operations.
-- [ ] **Transactions:** Multi-write mutations run via `s.GetTransactionRunner().Run` using the inner callback context.
-- [ ] **Generators:** Ran `make generate` and `make bruno` if domain models or HTTP routes were modified.
-- [ ] **Hand-Edits:** Verified zero manual modifications to generated Mongo models or Bruno documents.
-- [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`) covering ALL declared constants; zero hardcoded `oneof=` validator tags.
-- [ ] **Constants & Sentinels:** All constants live in 'internal/core/constant/' or 'internal/ports/'; all sentinels live in 'internal/ports/errors.go' (zero local const or var err... = errors.New(...) in adapters/services).
-- [ ] **Memory:** Updated `MEMORY.md` with step progress, state, and next actions.
+- [ ] `make verify` exits 0 (ran after every step, not only now).
+- [ ] Every new file mirrors its reference file.
+- [ ] Verifier blind spots checked by hand.
+- [ ] Generators ran for changed models, ports, or routes; generated files untouched.
+- [ ] `MEMORY.md` updated with step, state, and next action.
