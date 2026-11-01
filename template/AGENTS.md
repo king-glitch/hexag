@@ -23,7 +23,8 @@ This loop prevents that. Follow it on every step, not once per session.
    generic Go idioms.
 3. **Edit small.** Change one layer or one feature slice per step.
 4. **Verify every step.** Run `make verify` after each step, not only at the end. Fix every violation before the next
-   edit. Never defer fixes.
+   edit. Never defer fixes. Claude Code and Gemini CLI hooks (`.claude/settings.json`, `.gemini/settings.json`) run it
+   after every Go edit; treat a hook failure as blocking.
 5. **Check blind spots.** `make verify` cannot see some rules. Check them by hand before you mark a step done.
 6. **Record.** Update `MEMORY.md` (step, state, next action) only after `make verify` exits 0.
 7. **Trust order.** This file > `make verify` output > verified existing code > your memory of earlier turns. If code you

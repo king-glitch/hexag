@@ -87,7 +87,26 @@ func runUpdate(args []string) error {
 		}
 	}
 
-	// 5. MEMORY.md
+	// 5. Agent hook settings: created only when missing so project customizations survive.
+	for _, rel := range []string{".claude/settings.json", ".gemini/settings.json"} {
+		target := filepath.Join(absDest, rel)
+		if _, err := os.Stat(target); !os.IsNotExist(err) {
+			continue
+		}
+		settingsFile, err := getTemplateFile(rel)
+		if err != nil {
+			return fmt.Errorf("failed to load template %s: %w", rel, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", filepath.Dir(target), err)
+		}
+		if err := os.WriteFile(target, settingsFile.Content, 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", rel, err)
+		}
+		fmt.Printf("✓ created %s\n", rel)
+	}
+
+	// 6. MEMORY.md
 	memoryPath := filepath.Join(absDest, "MEMORY.md")
 	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
 		if memoryFile, err := getTemplateFile("MEMORY.md"); err == nil {
