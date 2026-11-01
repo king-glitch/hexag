@@ -36,30 +36,9 @@ func runVerify(args []string) error {
 		return fmt.Errorf("failed to resolve directory: %w", err)
 	}
 
-	verifier := rules.NewVerifier()
-
-	internalDir := filepath.Join(absDir, "internal")
-	templateInternalDir := filepath.Join(absDir, "template", "internal")
-
-	var dirsToVerify []string
-	if info, err := os.Stat(internalDir); err == nil && info.IsDir() {
-		dirsToVerify = append(dirsToVerify, internalDir)
-	}
-	if info, err := os.Stat(templateInternalDir); err == nil && info.IsDir() {
-		dirsToVerify = append(dirsToVerify, templateInternalDir)
-	}
-
-	if len(dirsToVerify) == 0 {
-		dirsToVerify = append(dirsToVerify, absDir)
-	}
-
-	for _, d := range dirsToVerify {
-		if *verbose {
-			fmt.Printf("Verifying directory: %s\n", d)
-		}
-		if err := verifier.VerifyPath(d); err != nil {
-			return err
-		}
+	verifier, err := verifyProject(absDir, *verbose)
+	if err != nil {
+		return err
 	}
 
 	violations := verifier.Violations()
@@ -82,4 +61,35 @@ func runVerify(args []string) error {
 
 	fmt.Printf("✓ hexag verify: all architecture and naming rules passed (%d Go files checked)\n", verifier.FileCount())
 	return nil
+}
+
+// verifyProject checks internal/ (and template/internal/ in the hexag repo), falling back to absDir.
+func verifyProject(absDir string, verbose bool) (*rules.Verifier, error) {
+	verifier := rules.NewVerifier()
+
+	internalDir := filepath.Join(absDir, "internal")
+	templateInternalDir := filepath.Join(absDir, "template", "internal")
+
+	var dirsToVerify []string
+	if info, err := os.Stat(internalDir); err == nil && info.IsDir() {
+		dirsToVerify = append(dirsToVerify, internalDir)
+	}
+	if info, err := os.Stat(templateInternalDir); err == nil && info.IsDir() {
+		dirsToVerify = append(dirsToVerify, templateInternalDir)
+	}
+
+	if len(dirsToVerify) == 0 {
+		dirsToVerify = append(dirsToVerify, absDir)
+	}
+
+	for _, d := range dirsToVerify {
+		if verbose {
+			fmt.Printf("Verifying directory: %s\n", d)
+		}
+		if err := verifier.VerifyPath(d); err != nil {
+			return nil, err
+		}
+	}
+
+	return verifier, nil
 }

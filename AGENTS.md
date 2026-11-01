@@ -2,7 +2,7 @@
 
 ## Contract
 
-- Run `/ponytail ultra` before work; keep it active.
+- Run `/caveman ultra` and `/ponytail ultra` before work; keep both active every response until the user says otherwise.
 - Be terse and implementation-focused.
 - Use installed skills/MCP before improvising.
 - Go 1.27+; module `github.com/king-glitch/hexag`; strict hexagonal architecture.
@@ -28,8 +28,9 @@ This loop prevents that. Follow it on every step, not once per session.
    generic Go idioms.
 3. **Edit small.** Change one layer or one feature slice per step.
 4. **Verify every step.** Run `make verify` after each step, not only at the end. Fix every violation before the next
-   edit. Never defer fixes. Claude Code (`.claude/settings.json`) and Antigravity (`.agents/hooks.json`) hooks run it
-   automatically; treat a hook failure as blocking.
+   edit. Never defer fixes. Claude Code (`.claude/settings.json`) and Antigravity (`.agents/hooks.json`) hooks call
+   `hexag hook`, which runs it automatically; treat a hook failure as blocking. Install the CLI so hooks find it:
+   `go install github.com/king-glitch/hexag/cmd/hexag@latest`.
 5. **Check blind spots.** `make verify` cannot see some rules. Check them by hand before you mark a step done.
 6. **Record.** Update `MEMORY.md` (step, state, next action) only after `make verify` exits 0.
 7. **Trust order.** This file > `make verify` output > verified existing code > your memory of earlier turns. If code you

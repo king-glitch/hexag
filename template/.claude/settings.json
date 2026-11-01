@@ -1,24 +1,15 @@
 {
   "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "hexag hook claude session" } ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "hexag hook claude prompt" } ] }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "grep -qE '\"file_path\": *\"[^\"]*\\.go\"' || exit 0; cd \"$CLAUDE_PROJECT_DIR\" && make -s verify >&2 || { echo 'make verify failed: fix these violations before the next edit (AGENTS.md Operating Loop).' >&2; exit 2; }"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && cat AGENTS.md MEMORY.md 2>/dev/null"
-          }
-        ]
+        "hooks": [ { "type": "command", "command": "hexag hook claude edit", "timeout": 120 } ]
       }
     ]
   }

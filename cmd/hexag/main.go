@@ -21,6 +21,7 @@ func usage() {
 	fmt.Println("  mongo       Generate Mongo fields and standalone models")
 	fmt.Println("  new         Scaffold a new hexagonal project from the official template")
 	fmt.Println("  update      Update AGENTS.md, agent hooks, and configuration in an existing project")
+	fmt.Println("  hook        Agent hook adapter (antigravity <pre|stop>, claude <session|prompt|edit>)")
 	fmt.Println("  completion  Generate shell autocompletion script (zsh, bash)")
 	fmt.Println("  version     Show hexag version")
 	fmt.Println()
@@ -48,6 +49,8 @@ func main() {
 		err = runNew(args)
 	case "update":
 		err = runUpdate(args)
+	case "hook":
+		err = runHook(args)
 	case "completion":
 		err = runCompletion(args)
 	case "version", "-v", "--version":

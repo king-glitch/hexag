@@ -1,10 +1,18 @@
 {
   "hexag-verify": {
     "PreInvocation": [
-      { "type": "command", "command": "sh hexag-verify.sh pre", "timeout": 120 }
+      {
+        "type": "command",
+        "command": "hexag hook antigravity pre",
+        "timeout": 120
+      }
     ],
     "Stop": [
-      { "type": "command", "command": "sh hexag-verify.sh stop", "timeout": 120 }
+      {
+        "type": "command",
+        "command": "hexag hook antigravity stop",
+        "timeout": 120
+      }
     ]
   }
 }

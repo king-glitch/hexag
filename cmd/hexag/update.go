@@ -70,7 +70,7 @@ func runUpdate(args []string) error {
 	}
 
 	// 5. Agent hook settings: created only when missing so project customizations survive.
-	for _, rel := range []string{".claude/settings.json", ".agents/hooks.json", ".agents/hexag-verify.sh"} {
+	for _, rel := range []string{".claude/settings.json", ".agents/hooks.json"} {
 		target := filepath.Join(absDest, rel)
 		if _, err := os.Stat(target); !os.IsNotExist(err) {
 			continue

@@ -79,7 +79,7 @@ sed \
 echo "✓ updated $DEST_DIR/AGENTS.md"
 
 # 2. Agent hook settings: created only when missing so project customizations survive.
-for rel in .claude/settings.json .agents/hooks.json .agents/hexag-verify.sh; do
+for rel in .claude/settings.json .agents/hooks.json; do
   if [ ! -e "$DEST_DIR/$rel" ]; then
     mkdir -p "$DEST_DIR/$(dirname "$rel")"
     cp "$TEMPLATE_DIR/$rel" "$DEST_DIR/$rel"

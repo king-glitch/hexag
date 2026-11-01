@@ -14,6 +14,7 @@ _hexag() {
         'mongo:Generate Mongo fields and standalone models'
         'new:Scaffold a new hexagonal project from the official template'
         'update:Update AGENTS.md, agent hooks, and configuration in an existing project'
+        'hook:Agent hook adapter (antigravity, claude)'
         'completion:Generate shell autocompletion script (zsh, bash)'
         'version:Show hexag version'
         'help:Show help'
@@ -69,7 +70,7 @@ const bashCompletionScript = `_hexag_completions() {
     local cur prev commands
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="verify bruno mongo new update completion version help"
+    commands="verify bruno mongo new update hook completion version help"
 
     if [ $COMP_CWORD -eq 1 ]; then
         COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
