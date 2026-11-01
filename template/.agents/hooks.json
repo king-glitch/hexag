@@ -1,0 +1,10 @@
+{
+  "hexag-verify": {
+    "PreInvocation": [
+      { "type": "command", "command": "sh hexag-verify.sh pre", "timeout": 120 }
+    ],
+    "Stop": [
+      { "type": "command", "command": "sh hexag-verify.sh stop", "timeout": 120 }
+    ]
+  }
+}

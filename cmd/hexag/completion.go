@@ -13,7 +13,7 @@ _hexag() {
         'bruno:Generate Bruno API collections and Markdown API reference'
         'mongo:Generate Mongo fields and standalone models'
         'new:Scaffold a new hexagonal project from the official template'
-        'update:Update AGENTS.md, CLAUDE.md, and configuration in an existing project'
+        'update:Update AGENTS.md, agent hooks, and configuration in an existing project'
         'completion:Generate shell autocompletion script (zsh, bash)'
         'version:Show hexag version'
         'help:Show help'

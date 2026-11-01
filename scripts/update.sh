@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Updates AI agent standards (AGENTS.md, CLAUDE.md) and optional framework
+# Updates AI agent standards (AGENTS.md, agent hooks) and optional framework
 # template files in an existing hexag project.
 #
 # Usage: update.sh [dest-dir] [flags]
 # Flags:
 #   --mockery    Also update .mockery.yml
 #   --makefile   Also update makefile
-#   --all        Update AGENTS.md, CLAUDE.md, .mockery.yml, and makefile
+#   --all        Update AGENTS.md, agent hooks, .mockery.yml, and makefile
 #
 # If dest-dir is omitted, defaults to current directory.
 
@@ -35,7 +35,7 @@ for arg in "$@"; do
     -h|--help)
       echo "usage: hexag update [dest-dir] [--mockery] [--makefile] [--all]"
       echo ""
-      echo "updates AGENTS.md and ensures CLAUDE.md links to it in a project."
+      echo "updates AGENTS.md and installs missing agent hooks in a project."
       echo "options:"
       echo "  --mockery    also update .mockery.yml"
       echo "  --makefile   also update makefile"
@@ -78,20 +78,14 @@ sed \
   "$TEMPLATE_DIR/AGENTS.md" > "$DEST_DIR/AGENTS.md"
 echo "✓ updated $DEST_DIR/AGENTS.md"
 
-# 2. Update/ensure CLAUDE.md references @AGENTS.md
-if [ ! -f "$DEST_DIR/CLAUDE.md" ]; then
-  printf "@AGENTS.md\n\nRun \`make verify\` before updating \`MEMORY.md\`. If it fails, fix the code immediately.\n" > "$DEST_DIR/CLAUDE.md"
-  echo "✓ created $DEST_DIR/CLAUDE.md"
-else
-  if ! grep -q "@AGENTS.md" "$DEST_DIR/CLAUDE.md"; then
-    tmp_claude="$(mktemp)"
-    printf "@AGENTS.md\n\nRun \`make verify\` before updating \`MEMORY.md\`. If it fails, fix the code immediately.\n\n%s\n" "$(cat "$DEST_DIR/CLAUDE.md")" > "$tmp_claude"
-    mv "$tmp_claude" "$DEST_DIR/CLAUDE.md"
-    echo "✓ prepended @AGENTS.md to $DEST_DIR/CLAUDE.md"
-  else
-    echo "✓ $DEST_DIR/CLAUDE.md already references @AGENTS.md"
+# 2. Agent hook settings: created only when missing so project customizations survive.
+for rel in .claude/settings.json .agents/hooks.json .agents/hexag-verify.sh; do
+  if [ ! -e "$DEST_DIR/$rel" ]; then
+    mkdir -p "$DEST_DIR/$(dirname "$rel")"
+    cp "$TEMPLATE_DIR/$rel" "$DEST_DIR/$rel"
+    echo "✓ created $DEST_DIR/$rel"
   fi
-fi
+done
 
 # 3. Optional: .mockery.yml
 if [ "$UPDATE_MOCKERY" = true ]; then

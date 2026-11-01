@@ -399,7 +399,7 @@ The `hexag` CLI tool (`scripts/hexag` or symlinked `bin/hexag`) manages projects
 # 1. Scaffold a brand new project
 hexag new github.com/my-org/my-service ~/dev/my-service my_db
 
-# 2. Update AI agent standards (AGENTS.md, CLAUDE.md, MEMORY.md) in an existing project
+# 2. Update AI agent standards (AGENTS.md, agent hooks, MEMORY.md) in an existing project
 hexag update ~/dev/my-service --all
 
 # 3. Generate Bruno collections and docs/API.md

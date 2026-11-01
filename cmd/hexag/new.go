@@ -111,13 +111,6 @@ func runNew(args []string) error {
 		}
 	}
 
-	// Create CLAUDE.md
-	claudePath := filepath.Join(absDest, "CLAUDE.md")
-	claudeContent := "@AGENTS.md\n\nRun `make verify` before updating `MEMORY.md`. If it fails, fix the code immediately.\n"
-	if err := os.WriteFile(claudePath, []byte(claudeContent), 0644); err != nil {
-		return fmt.Errorf("failed to write CLAUDE.md: %w", err)
-	}
-
 	// Copy .env.example to .env
 	envExPath := filepath.Join(absDest, ".env.example")
 	envPath := filepath.Join(absDest, ".env")

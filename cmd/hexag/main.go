@@ -20,7 +20,7 @@ func usage() {
 	fmt.Println("  bruno       Generate Bruno API collections and Markdown API reference")
 	fmt.Println("  mongo       Generate Mongo fields and standalone models")
 	fmt.Println("  new         Scaffold a new hexagonal project from the official template")
-	fmt.Println("  update      Update AGENTS.md, CLAUDE.md, and configuration in an existing project")
+	fmt.Println("  update      Update AGENTS.md, agent hooks, and configuration in an existing project")
 	fmt.Println("  completion  Generate shell autocompletion script (zsh, bash)")
 	fmt.Println("  version     Show hexag version")
 	fmt.Println()

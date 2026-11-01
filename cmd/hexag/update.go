@@ -48,24 +48,6 @@ func runUpdate(args []string) error {
 	}
 	fmt.Println("✓ updated AGENTS.md")
 
-	// 2. Ensure CLAUDE.md has @AGENTS.md
-	claudePath := filepath.Join(absDest, "CLAUDE.md")
-	contractClause := "@AGENTS.md\n\nRun `make verify` before updating `MEMORY.md`. If it fails, fix the code immediately.\n"
-	if existing, err := os.ReadFile(claudePath); err != nil {
-		if err := os.WriteFile(claudePath, []byte(contractClause), 0644); err != nil {
-			return fmt.Errorf("failed to create CLAUDE.md: %w", err)
-		}
-		fmt.Println("✓ created CLAUDE.md")
-	} else if !strings.Contains(string(existing), "@AGENTS.md") {
-		newContent := contractClause + "\n" + string(existing)
-		if err := os.WriteFile(claudePath, []byte(newContent), 0644); err != nil {
-			return fmt.Errorf("failed to update CLAUDE.md: %w", err)
-		}
-		fmt.Println("✓ prepended @AGENTS.md to CLAUDE.md")
-	} else {
-		fmt.Println("✓ CLAUDE.md already references @AGENTS.md")
-	}
-
 	// 3. Optional: .mockery.yml
 	if *updateMockery || *updateAll {
 		if mockeryFile, err := getTemplateFile(".mockery.yml"); err == nil {
@@ -88,7 +70,7 @@ func runUpdate(args []string) error {
 	}
 
 	// 5. Agent hook settings: created only when missing so project customizations survive.
-	for _, rel := range []string{".claude/settings.json", ".gemini/settings.json"} {
+	for _, rel := range []string{".claude/settings.json", ".agents/hooks.json", ".agents/hexag-verify.sh"} {
 		target := filepath.Join(absDest, rel)
 		if _, err := os.Stat(target); !os.IsNotExist(err) {
 			continue

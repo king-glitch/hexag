@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scaffolds a new hexag-based project: copies template/ (including
 # AGENTS.md), substitutes the module path and db name, wires a local
-# replace to this hexag checkout, writes CLAUDE.md, then tidies and
+# replace to this hexag checkout, then tidies and
 # generates the first model.
 #
 # Usage: new.sh <module-path> <dest-dir> [db-name]
@@ -54,8 +54,6 @@ mkdir -p "$DEST_DIR"
 done
 
 echo "scaffolded $DEST_DIR"
-
-printf "@AGENTS.md\n\nRun \`make verify\` before updating \`MEMORY.md\`. If it fails, fix the code immediately.\n" > "$DEST_DIR/CLAUDE.md"
 
 echo "cp $DEST_DIR/.env.example $DEST_DIR/.env"
 cp "$DEST_DIR/.env.example" "$DEST_DIR/.env"

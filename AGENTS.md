@@ -28,8 +28,8 @@ This loop prevents that. Follow it on every step, not once per session.
    generic Go idioms.
 3. **Edit small.** Change one layer or one feature slice per step.
 4. **Verify every step.** Run `make verify` after each step, not only at the end. Fix every violation before the next
-   edit. Never defer fixes. Claude Code and Gemini CLI hooks (`.claude/settings.json`, `.gemini/settings.json`) run it
-   after every Go edit; treat a hook failure as blocking.
+   edit. Never defer fixes. Claude Code (`.claude/settings.json`) and Antigravity (`.agents/hooks.json`) hooks run it
+   automatically; treat a hook failure as blocking.
 5. **Check blind spots.** `make verify` cannot see some rules. Check them by hand before you mark a step done.
 6. **Record.** Update `MEMORY.md` (step, state, next action) only after `make verify` exits 0.
 7. **Trust order.** This file > `make verify` output > verified existing code > your memory of earlier turns. If code you
@@ -77,6 +77,7 @@ Agents drift toward generic Go idioms. Each violation causes task rejection.
 | **Tx Runner**        | `txRunner` field or constructor argument                                    | `s.GetTransactionRunner().Run(...)` via base service                         |
 | **Collections**      | `"users"`, `"user"`, `"subscriptions"`                                      | `ports.UserModel{}.CollectionName()` returning singular snake_case           |
 | **Errors**           | `return err`, `_ = dep.Method(...)`, `_ = err`                              | `return errors.Wrap(err, "action context")`; handle every error              |
+| **Violations**       | `serr.AddError(...)` as a statement, then `return serr`                     | `return serr.AddError(...).AddError(...)`; `serr = serr.AddError(...)` in loops |
 | **Sentinels**        | `err == ports.ErrNotFound`, local `var errX = errors.New(...)`              | `errors.Is(err, ports.ErrX)`; sentinels only in `internal/ports/errors.go`   |
 | **Constants**        | `const loadTimeout = ...` in adapter/service files                          | `internal/core/constant/` (untyped) or typed enums in `internal/ports/`      |
 | **Time**             | `time.Now()` in a function that receives `time.Time`; 2+ `time.Now()` calls | Capture once (`at := hextransport.RequestTime(c)` or `at := time.Now()`), pass `at` |
@@ -263,6 +264,15 @@ if err := s.repository.Update(ctx, id, at); err != nil {
 ```
 
 - Names: `err` for `error`, `serr` for `*serviceerrors.ServiceError`.
+- Build field violations as one chain. `AddError` returns the receiver; never discard its result:
+
+```go
+return serviceerrors.NewServiceError(
+    serviceerrors.ServiceErrorCodeValidation,
+    errors.New("invalid profile"),
+).AddError("email", "must be a valid email", nil).AddError("age", "must be at least 18", nil)
+```
+
 - Never compare errors with `==`, `!=`, or `switch err`.
 - Register every sentinel in `internal/ports/errors.go` `init()` with `serviceerrors.RegisterSentinel`.
 - Multiple settle/cleanup failure paths: named error return, one `defer`, one final inspection. Never duplicate cleanup.

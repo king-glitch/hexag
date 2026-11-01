@@ -1165,3 +1165,39 @@ func Check(body ResponseWrapper) bool {
 
 
 
+
+func TestVerifier_AddErrorChaining(t *testing.T) {
+	tmpDir := t.TempDir()
+	pkgDir := filepath.Join(tmpDir, "internal", "services", "user")
+	require.NoError(t, os.MkdirAll(pkgDir, 0755))
+
+	content := `package user
+
+import serviceerrors "github.com/king-glitch/hexag/framework/api/service/errors"
+
+func Bad(serr *serviceerrors.ServiceError) *serviceerrors.ServiceError {
+	serr.AddError("email", "invalid", nil)
+	serr.AddError("age", "too young", nil).AddError("name", "required", nil)
+	return serr
+}
+
+func Good(serr *serviceerrors.ServiceError, fields []string) *serviceerrors.ServiceError {
+	for _, f := range fields {
+		serr = serr.AddError(f, "required", nil)
+	}
+	return serr.AddError("email", "invalid", nil).AddError("age", "too young", nil)
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "service.go"), []byte(content), 0644))
+
+	verifier := NewVerifier()
+	require.NoError(t, verifier.VerifyPath(tmpDir))
+
+	var chaining int
+	for _, violation := range verifier.Violations() {
+		if strings.Contains(violation.Description, "AddError") {
+			chaining++
+		}
+	}
+	assert.Equal(t, 2, chaining)
+}

@@ -328,6 +328,9 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 
 		case *ast.ValueSpec:
 			v.checkValueSpec(filePath, node)
+
+		case *ast.ExprStmt:
+			v.checkExprStmt(filePath, node, isInternal)
 		}
 
 		return true
@@ -1102,6 +1105,29 @@ func (v *Verifier) checkAssignStmt(filePath string, assign *ast.AssignStmt, isIn
 			}
 		}
 	}
+}
+
+// checkExprStmt enforces builder-style ServiceError violations: AddError returns the
+// receiver, so a statement that discards its result means separate mutate calls.
+func (v *Verifier) checkExprStmt(filePath string, stmt *ast.ExprStmt, isInternal bool) {
+	if !isInternal {
+		return
+	}
+	call, ok := stmt.X.(*ast.CallExpr)
+	if !ok {
+		return
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "AddError" {
+		return
+	}
+	v.addViolation(
+		v.fset.Position(stmt.Pos()),
+		"Errors",
+		"ServiceError violations are built as one chain; AddError results must never be discarded.",
+		fmt.Sprintf("Discarded AddError result in '%s'.", exprToString(call)),
+		"Chain the calls and use the result: 'return serr.AddError(...).AddError(...)', or 'serr = serr.AddError(...)' inside a loop.",
+	)
 }
 
 func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt) {

@@ -13,11 +13,10 @@
     ],
     "SessionStart": [
       {
-        "matcher": "compact|resume",
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && echo 'Context was compacted or resumed. Re-apply these rules before the next edit:' && sed -n '/^## Operating Loop/,/^## Architecture/p' AGENTS.md && cat MEMORY.md"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && cat AGENTS.md MEMORY.md 2>/dev/null"
           }
         ]
       }
