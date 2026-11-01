@@ -86,6 +86,7 @@ Agents drift toward generic Go idioms. Each violation causes task rejection.
 | **HTTP Input**       | `c.Query("page")`, `strconv`, `time.Parse`                                  | `hextransport.Bind` / `hextransport.BindQuery` into typed DTOs               |
 | **Validation**       | Re-checking length/enum in service; `validate:"oneof=..."`                  | Validator tags + typed enums (framework calls `IsValid()`)                   |
 | **Enums**            | Typed enum without `IsValid() bool`, or missing a constant                  | `IsValid()` covers every declared constant                                   |
+| **Raw Strings**      | `switch job.Type { case "audit-logs": }`, `x == "admin"`                   | Typed enum field + `case ports.JobTypeAuditLogs:`; `""` emptiness checks allowed |
 | **Verification**     | Skipping `make verify`, or running it only at the end                       | `make verify` exits 0 after every step                                       |
 
 ---
@@ -200,7 +201,8 @@ All domain models live in `internal/ports/domain.go`:
 
 - Pure invariants, transitions, lookups, filtering, and calculations live in `internal/core/domain/<entity>/rules.go`.
 - Call domain/framework functions directly; never wrap them in trivial service methods.
-- Typed enums live in `internal/ports/enum.go`; never use raw strings in domain or service code.
+- Typed enums live in `internal/ports/enum.go`. Never branch on raw string literals anywhere in `internal/`: every
+  `switch`/`case`, `==`, and `!=` compares a typed enum or a constant (only `""` is allowed).
 - Every typed enum implements `IsValid() bool` (`hexports.Validatable`) covering all declared constants:
 
 ```go

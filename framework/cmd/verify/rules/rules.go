@@ -321,7 +321,7 @@ func (v *Verifier) checkAST(filePath string, f *ast.File) {
 			v.checkAssignStmt(filePath, node, isInternal)
 
 		case *ast.SwitchStmt:
-			v.checkSwitchStmt(filePath, node)
+			v.checkSwitchStmt(filePath, node, isInternal)
 
 		case *ast.SelectorExpr:
 			v.checkSelectorExpr(filePath, node, importedPackages, callFunMap[node], typeExprMap[node])
@@ -1024,6 +1024,14 @@ func (v *Verifier) checkBinaryExpr(filePath string, bin *ast.BinaryExpr, isInter
 			)
 		}
 
+		if isInternal {
+			if lit, ok := rawStringLiteral(bin.X); ok {
+				v.addRawStringViolation(bin.Pos(), fmt.Sprintf("%s %s %s", lit, bin.Op, exprToString(bin.Y)))
+			} else if lit, ok := rawStringLiteral(bin.Y); ok {
+				v.addRawStringViolation(bin.Pos(), fmt.Sprintf("%s %s %s", exprToString(bin.X), bin.Op, lit))
+			}
+		}
+
 		// Check nil checks on injected dependencies: if s.us == nil, if t.brr != nil
 		if isInternal {
 			var depExpr ast.Expr
@@ -1130,9 +1138,20 @@ func (v *Verifier) checkExprStmt(filePath string, stmt *ast.ExprStmt, isInternal
 	)
 }
 
-func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt) {
+func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt, isInternal bool) {
 	if sw.Tag == nil {
 		return
+	}
+	if isInternal {
+		for _, stmt := range sw.Body.List {
+			if cc, ok := stmt.(*ast.CaseClause); ok {
+				for _, expr := range cc.List {
+					if lit, ok := rawStringLiteral(expr); ok {
+						v.addRawStringViolation(expr.Pos(), fmt.Sprintf("switch %s { case %s: }", exprToString(sw.Tag), lit))
+					}
+				}
+			}
+		}
 	}
 	tagStr := exprToString(sw.Tag)
 	if tagStr == "err" || strings.HasSuffix(tagStr, "Err") || strings.HasSuffix(tagStr, "Error") {
@@ -1153,6 +1172,25 @@ func (v *Verifier) checkSwitchStmt(filePath string, sw *ast.SwitchStmt) {
 			}
 		}
 	}
+}
+
+// rawStringLiteral reports a non-empty string literal; "" stays allowed for emptiness checks.
+func rawStringLiteral(expr ast.Expr) (string, bool) {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING || lit.Value == `""` || lit.Value == "``" {
+		return "", false
+	}
+	return lit.Value, true
+}
+
+func (v *Verifier) addRawStringViolation(pos token.Pos, code string) {
+	v.addViolation(
+		v.fset.Position(pos),
+		"Enums",
+		"Never branch on raw string literals; compare typed enums from internal/ports (with IsValid()) or constants from internal/core/constant/.",
+		fmt.Sprintf("Hardcoded string literal in comparison '%s' is forbidden.", code),
+		"Declare a typed enum in internal/ports/enum.go (e.g. 'type JobType string; const JobTypeAuditLogs JobType = \"audit-logs\"'), type the field with it, and compare against the constant.",
+	)
 }
 
 func isDepsExpr(expr ast.Expr) bool {

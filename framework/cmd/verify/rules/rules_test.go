@@ -1201,3 +1201,42 @@ func Good(serr *serviceerrors.ServiceError, fields []string) *serviceerrors.Serv
 	}
 	assert.Equal(t, 2, chaining)
 }
+
+func TestVerifier_RawStringComparisons(t *testing.T) {
+	tmpDir := t.TempDir()
+	pkgDir := filepath.Join(tmpDir, "internal", "services", "job")
+	require.NoError(t, os.MkdirAll(pkgDir, 0755))
+
+	content := `package job
+
+import "example/internal/ports"
+
+func Bad(job ports.JobModel) bool {
+	switch job.Type {
+	case "audit-logs", "cleanup":
+		return true
+	}
+	return job.Name == "nightly" || "x" != job.Name
+}
+
+func Good(job ports.JobModel) bool {
+	switch job.Type {
+	case ports.JobTypeAuditLogs:
+		return true
+	}
+	return job.Name == "" || job.Type != ports.JobTypeCleanup
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(pkgDir, "service.go"), []byte(content), 0644))
+
+	verifier := NewVerifier()
+	require.NoError(t, verifier.VerifyPath(tmpDir))
+
+	var raw int
+	for _, violation := range verifier.Violations() {
+		if strings.Contains(violation.Description, "Hardcoded string literal") {
+			raw++
+		}
+	}
+	assert.Equal(t, 4, raw)
+}
