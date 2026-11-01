@@ -64,6 +64,10 @@ func NewServiceError(code ServiceErrorCode, err error) *ServiceError {
 }
 
 func (e *ServiceError) WithStatusCode(code int) *ServiceError {
+	if e == nil {
+		return nil
+	}
+
 	e.StatusCode = code
 	return e
 }
@@ -105,6 +109,14 @@ func (e *ServiceError) Cause() error {
 }
 
 func (e *ServiceError) AddError(field string, message string, err error) *ServiceError {
+	if e == nil {
+		return nil
+	}
+
+	if e.Violations == nil {
+		e.Violations = make(map[string]Violation)
+	}
+
 	violation := Violation{
 		Code:    e.Code,
 		Message: message,
@@ -117,6 +129,10 @@ func (e *ServiceError) AddError(field string, message string, err error) *Servic
 	e.Violations[field] = violation
 
 	return e
+}
+
+func (e *ServiceError) Add(field string, message string, err error) *ServiceError {
+	return e.AddError(field, message, err)
 }
 
 func (e *ServiceError) Error() string {

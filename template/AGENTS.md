@@ -9,7 +9,6 @@
 - Framework: `github.com/king-glitch/hexag`.
 - Root `CLAUDE.md` imports this file; never remove/break that link.
 - Run `make verify` before updating `MEMORY.md`. If it fails, fix the code immediately.
-- After edits, commit changes, tag a new release incrementing the patch version by 1 (e.g. v0.0.1 -> v0.0.2 or v0.0.x -> v0.0.x+1), push commit and tag, create the GitHub release, and warm the Go proxy via 'GOPROXY=https://proxy.golang.org go list -m github.com/king-glitch/hexag@<version>'.
 - Check `MEMORY.md` to resume where left off; update `MEMORY.md` after completing each step in `docs/plans/` so next agent can seamlessly continue.
 - If repository state or user instructions conflict with this file, stop and ask.
 
@@ -345,4 +344,3 @@ Execute this checklist before reporting any task complete:
 - [ ] **Enums:** Every domain enum implements `IsValid() bool` (`hexports.Validatable`) covering ALL declared constants; zero hardcoded `oneof=` validator tags.
 - [ ] **Constants & Sentinels:** All constants live in 'internal/core/constant/' or 'internal/ports/'; all sentinels live in 'internal/ports/errors.go' (zero local const or var err... = errors.New(...) in adapters/services).
 - [ ] **Memory:** Updated `MEMORY.md` with step progress, state, and next actions.
-- [ ] **Release:** Commit completed task files, tag release with bumped patch version (e.g. v0.0.x -> v0.0.x+1), push commit/tag, create GitHub release, and warm Go proxy (`GOPROXY=https://proxy.golang.org go list -m github.com/king-glitch/hexag@<version>`) so consumers can immediately update without proxy cache delays.
