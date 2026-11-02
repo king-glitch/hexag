@@ -28,7 +28,9 @@ type CORSConfig struct {
 
 // Config holds configuration for the httpx HTTP application.
 type Config struct {
-	CORS CORSConfig
+	CORS              CORSConfig
+	BodyLimit         int
+	StreamRequestBody bool
 }
 
 // Option configures an httpx application.
@@ -45,6 +47,20 @@ func WithConfig(cfg Config) Option {
 func WithCORS(cors CORSConfig) Option {
 	return func(c *Config) {
 		c.CORS = cors
+	}
+}
+
+// WithBodyLimit sets the maximum request body size in bytes.
+func WithBodyLimit(limit int) Option {
+	return func(c *Config) {
+		c.BodyLimit = limit
+	}
+}
+
+// WithStreamRequestBody sets whether to stream request bodies.
+func WithStreamRequestBody(stream bool) Option {
+	return func(c *Config) {
+		c.StreamRequestBody = stream
 	}
 }
 
@@ -74,7 +90,8 @@ func DefaultCORSConfig() CORSConfig {
 // DefaultConfig returns the default httpx configuration.
 func DefaultConfig() Config {
 	return Config{
-		CORS: DefaultCORSConfig(),
+		CORS:      DefaultCORSConfig(),
+		BodyLimit: 4 * 1024 * 1024,
 	}
 }
 
@@ -100,9 +117,11 @@ func New(logger *zerolog.Logger, mount func(api fiber.Router), opts ...Option) *
 			JSONDecoder: func(data []byte, v any) error {
 				return json.Unmarshal(data, v)
 			},
-			Immutable:       true,
-			StructValidator: validator.NewStructValidator(),
-			ErrorHandler:    errorHandler,
+			Immutable:         true,
+			StructValidator:   validator.NewStructValidator(),
+			ErrorHandler:      errorHandler,
+			BodyLimit:         cfg.BodyLimit,
+			StreamRequestBody: cfg.StreamRequestBody,
 		},
 	)
 
@@ -126,6 +145,9 @@ func New(logger *zerolog.Logger, mount func(api fiber.Router), opts ...Option) *
 }
 
 func applyConfigDefaults(cfg *Config) {
+	if cfg.BodyLimit <= 0 {
+		cfg.BodyLimit = 4 * 1024 * 1024
+	}
 	if len(cfg.CORS.AllowOrigins) == 0 {
 		cfg.CORS.AllowOrigins = []string{"*"}
 	}

@@ -1,6 +1,7 @@
 package httpx_test
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -118,4 +119,50 @@ func TestNew_WithConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Access-Control-Allow-Headers"), "X-Custom-Header")
+}
+
+func TestNew_WithBodyLimit(t *testing.T) {
+	logger := zerolog.Nop()
+	app := hexhttpx.New(
+		&logger,
+		func(api fiber.Router) {
+			api.Post("/upload", func(c fiber.Ctx) error {
+				return c.SendString(string(c.Body()))
+			})
+		},
+		hexhttpx.WithBodyLimit(10),
+	)
+
+	// Within limit: 5 bytes
+	reqSmall := httptest.NewRequest(http.MethodPost, "/api/v1/upload", bytes.NewReader([]byte("hello")))
+	respSmall, err := app.Test(reqSmall)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, respSmall.StatusCode)
+
+	// Over limit: 20 bytes
+	reqLarge := httptest.NewRequest(http.MethodPost, "/api/v1/upload", bytes.NewReader([]byte("12345678901234567890")))
+	respLarge, err := app.Test(reqLarge)
+	if err != nil {
+		require.Contains(t, err.Error(), "body size exceeds")
+	} else {
+		require.Equal(t, http.StatusRequestEntityTooLarge, respLarge.StatusCode)
+	}
+}
+
+func TestNew_WithStreamRequestBody(t *testing.T) {
+	logger := zerolog.Nop()
+	app := hexhttpx.New(
+		&logger,
+		func(api fiber.Router) {
+			api.Post("/stream", func(c fiber.Ctx) error {
+				return c.SendString("streamed")
+			})
+		},
+		hexhttpx.WithStreamRequestBody(true),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/stream", bytes.NewReader([]byte("test data")))
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
